@@ -1,5 +1,5 @@
 import { store, setStore } from './core';
-import { getTaskFocusedPanel, setTaskFocusedPanel } from './focused-panel';
+import { getTaskFocusedPanel, setTaskFocusedPanel, triggerFocus } from './focused-panel';
 import { showNotification } from './notification';
 import { pickAndAddProject } from './projects';
 import { reorderTask } from './tasks';
@@ -73,16 +73,21 @@ export function jumpToTask(index: number): void {
   }
 }
 
-export function toggleNewTaskDialog(show?: boolean): void {
-  const shouldShow = show ?? !store.showNewTaskDialog;
+export function toggleNewTaskPanel(show?: boolean): void {
+  const shouldShow = show ?? !store.showNewTaskPanel;
   if (shouldShow && store.projects.length === 0) {
     showNotification('Add a project first');
     pickAndAddProject();
     return;
   }
-  if (!shouldShow) {
+  if (shouldShow) {
+    setStore('activeDocumentProjectId', null);
+    setStore('sidebarFocused', false);
+    setStore('placeholderFocused', false);
+  } else {
     setStore('newTaskDropUrl', null);
     setStore('newTaskPrefillPrompt', null);
   }
-  setStore('showNewTaskDialog', shouldShow);
+  setStore('showNewTaskPanel', shouldShow);
+  if (shouldShow) triggerFocus('new-task');
 }

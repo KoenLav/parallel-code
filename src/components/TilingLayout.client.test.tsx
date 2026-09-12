@@ -1,0 +1,367 @@
+import assert from 'node:assert/strict';
+import { render } from 'solid-js/web';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { IPC } from '../../electron/ipc/channels';
+import { invoke } from '../lib/ipc';
+import { store, setStore } from '../store/core';
+import { toggleNewTaskPanel } from '../store/navigation';
+import { createTask } from '../store/tasks';
+import { TilingLayout } from './TilingLayout';
+
+vi.mock('../lib/ipc', () => ({ invoke: vi.fn() }));
+vi.mock('../store/tasks', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../store/tasks')>()),
+  createTask: vi.fn(),
+}));
+vi.mock('./TaskPanel', () => ({ TaskPanel: () => <div>Existing task</div> }));
+vi.mock('./TerminalPanel', () => ({
+  TerminalPanel: () => <button>Existing terminal</button>,
+}));
+
+let dispose: (() => void) | undefined;
+let container: HTMLDivElement;
+
+beforeEach(() => {
+  vi.mocked(invoke).mockImplementation(async (channel) => {
+    if (channel === IPC.GetBranches) return ['main'];
+    if (channel === IPC.GetMainBranch) return 'main';
+    if (channel === IPC.GetGitignoredDirs) return [];
+    return false;
+  });
+  setStore({
+    projects: [{ id: 'project', name: 'Project', path: '/repo', color: '#abc' }],
+    availableAgents: [
+      {
+        id: 'agent',
+        name: 'Agent',
+        command: 'agent',
+        args: [],
+        resume_args: [],
+        skip_permissions_args: [],
+        description: '',
+      },
+    ],
+    taskOrder: [],
+    collapsedTaskOrder: [],
+    tasks: {},
+    terminals: {},
+    activeTaskId: null,
+    showNewTaskPanel: false,
+    focusMode: false,
+    newTaskDropUrl: null,
+    newTaskPrefillPrompt: null,
+    defaultStepsEnabled: false,
+    defaultSkipPermissions: false,
+  });
+  container = document.createElement('div');
+  document.body.append(container);
+  dispose = render(() => <TilingLayout />, container);
+});
+
+afterEach(() => {
+  dispose?.();
+  document.body.replaceChildren();
+  vi.clearAllMocks();
+});
+
+async function openDraft() {
+  toggleNewTaskPanel(true);
+  await vi.waitFor(() => expect(container.querySelector('textarea')).not.toBeNull());
+  await vi.waitFor(() =>
+    expect(container.querySelector('button[type="submit"]')?.hasAttribute('disabled')).toBe(false),
+  );
+  const prompt = container.querySelector('textarea');
+  assert(prompt);
+  return prompt;
+}
+
+describe('inline task creation', () => {
+  it('hides add controls until the first task exists, including during its draft', async () => {
+    expect(container.querySelector('[aria-label="New task"]')).toBeNull();
+    expect(container.querySelector('[aria-label="New terminal"]')).toBeNull();
+    await openDraft();
+    expect(container.querySelector('[aria-label="New task"]')).toBeNull();
+    expect(container.querySelector('[aria-label="New terminal"]')).toBeNull();
+    Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Cancel')
+      ?.click();
+    expect(container.textContent).toContain('No tasks yet');
+    expect(container.querySelector('[aria-label="New task"]')).toBeNull();
+
+    setStore('tasks', 'task', {
+      id: 'task',
+      name: 'Task',
+      projectId: 'project',
+      branchName: 'task/test',
+      worktreePath: '/repo/task',
+      agentIds: [],
+      shellAgentIds: [],
+      notes: '',
+      lastPrompt: '',
+    });
+    setStore('taskOrder', ['task']);
+    const addTask = container.querySelector<HTMLElement>('[aria-label="New task"]');
+    const addTerminal = container.querySelector<HTMLElement>('[aria-label="New terminal"]');
+    assert(addTask);
+    assert(addTerminal);
+    addTask.click();
+    await openDraft();
+    expect(container.querySelector('[aria-label="New task"]')).toBe(addTask);
+    expect(container.querySelector('[aria-label="New terminal"]')).toBe(addTerminal);
+    addTerminal.click();
+    expect(store.taskOrder).toHaveLength(2);
+    expect(store.terminals[store.taskOrder[1]]).toBeDefined();
+    setStore('taskOrder', []);
+    expect(container.querySelector('[aria-label="New task"]')).toBeNull();
+    expect(container.querySelector('[aria-label="New terminal"]')).toBeNull();
+  });
+
+  it.each(['no projects', 'collapsed tasks', 'focus mode'])(
+    'hides the add controls in an empty strip with %s',
+    (state) => {
+      if (state === 'no projects') setStore('projects', []);
+      if (state === 'collapsed tasks') setStore('collapsedTaskOrder', ['collapsed']);
+      if (state === 'focus mode') setStore('focusMode', true);
+      expect(container.querySelector('[aria-label="New task"]')).toBeNull();
+      expect(container.querySelector('[aria-label="New terminal"]')).toBeNull();
+    },
+  );
+
+  it('starts with prompt, project, and agent, with advanced settings collapsed', async () => {
+    const prompt = await openDraft();
+    const sections = Array.from(container.querySelectorAll<HTMLElement>('[data-nav-field]'));
+    expect(sections.slice(0, 3).map((section) => section.dataset.navField)).toEqual([
+      'prompt',
+      'project',
+      'agent',
+    ]);
+    const toggle = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Advanced options'),
+    );
+    assert(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-nav-field="task-name"]')).toBeNull();
+    expect(container.querySelector('[data-nav-field="base-branch"]')).toBeNull();
+    prompt.focus();
+    for (let step = 0; step < 3; step++) {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }),
+      );
+    }
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it('retains advanced settings when collapsed and includes them in task creation', async () => {
+    await openDraft();
+    const toggle = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Advanced options'),
+    );
+    assert(toggle);
+    toggle.click();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const name = container.querySelector<HTMLInputElement>('[data-nav-field="task-name"] input');
+    assert(name);
+    name.value = 'Custom task name';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    container.querySelector<HTMLInputElement>('[data-nav-field="steps-enabled"] input')?.click();
+    toggle.click();
+    expect(container.querySelector('[data-nav-field="task-name"]')).toBeNull();
+    vi.mocked(createTask).mockResolvedValueOnce('created-task');
+    container
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(store.showNewTaskPanel).toBe(false));
+    expect(createTask).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: 'Custom task name', stepsEnabled: true }),
+    );
+  });
+
+  it('reveals advanced options when branch loading fails so Retry stays reachable', async () => {
+    const originalInvoke = vi.mocked(invoke).getMockImplementation();
+    assert(originalInvoke);
+    vi.mocked(invoke).mockImplementation((channel, args) =>
+      channel === IPC.GetBranches
+        ? Promise.reject(new Error('Branch lookup failed'))
+        : originalInvoke(channel, args),
+    );
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      toggleNewTaskPanel(true);
+      await vi.waitFor(() =>
+        expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+          "Couldn't load branches",
+        ),
+      );
+      const toggle = Array.from(container.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Advanced options'),
+      );
+      expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+      expect(
+        Array.from(container.querySelectorAll('button')).find(
+          (button) => button.textContent === 'Retry',
+        ),
+      ).toBeDefined();
+      vi.mocked(invoke).mockImplementation(originalInvoke);
+      Array.from(container.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Retry')
+        ?.click();
+      await vi.waitFor(() =>
+        expect(container.querySelector('button[type="submit"]')?.hasAttribute('disabled')).toBe(
+          false,
+        ),
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  it('keeps the skip-confirmation warning visible when advanced options are collapsed', async () => {
+    setStore('availableAgents', 0, 'skip_permissions_args', ['--skip-permissions']);
+    setStore('defaultSkipPermissions', true);
+    await openDraft();
+    expect(container.querySelector('[data-nav-field="skip-permissions"]')).toBeNull();
+    expect(container.textContent).toContain('The agent will run without asking for confirmation.');
+  });
+
+  it('opens inside the task strip even when there are no tasks', async () => {
+    const prompt = await openDraft();
+    expect(prompt.closest('[data-tiling-strip]')).not.toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(prompt);
+    expect(container.textContent).not.toContain('No tasks yet');
+  });
+
+  it('keeps the draft while interacting with another column and scopes Alt+Arrow to the form', async () => {
+    setStore('terminals', 'terminal', { id: 'terminal', name: 'Terminal', agentId: 'shell' });
+    setStore('taskOrder', ['terminal']);
+    const prompt = await openDraft();
+    prompt.value = 'Keep this draft';
+    prompt.dispatchEvent(new Event('input', { bubbles: true }));
+    const other = Array.from(container.querySelectorAll('button')).find(
+      (el) => el.textContent === 'Existing terminal',
+    );
+    assert(other);
+    other.focus();
+    const arrow = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    other.dispatchEvent(arrow);
+    expect(arrow.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(other);
+    setStore('activeDocumentProjectId', 'documents');
+    toggleNewTaskPanel(true);
+    expect(store.activeDocumentProjectId).toBeNull();
+    expect(container.querySelectorAll('textarea')).toHaveLength(1);
+    expect(prompt.value).toBe('Keep this draft');
+  });
+
+  it('guards Escape with discard confirmation and resets after discard', async () => {
+    const prompt = await openDraft();
+    prompt.value = 'Unsaved prompt';
+    prompt.dispatchEvent(new Event('input', { bubbles: true }));
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Discard draft?');
+    const discard = Array.from(document.querySelectorAll('button')).find(
+      (el) => el.textContent === 'Discard',
+    );
+    assert(discard);
+    discard.click();
+    expect(store.showNewTaskPanel).toBe(false);
+    expect((await openDraft()).value).toBe('');
+  });
+
+  it('retains input after a creation failure and closes after a successful retry', async () => {
+    const prompt = await openDraft();
+    prompt.value = 'Implement inline tasks';
+    prompt.dispatchEvent(new Event('input', { bubbles: true }));
+    vi.mocked(createTask).mockRejectedValueOnce(new Error('Cannot create worktree'));
+    container
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(container.textContent).toContain('Cannot create worktree'));
+    expect(prompt.value).toBe('Implement inline tasks');
+    vi.mocked(createTask).mockResolvedValueOnce('created-task');
+    container
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(store.showNewTaskPanel).toBe(false));
+    expect(createTask).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        initialPrompt: 'Implement inline tasks',
+        projectId: 'project',
+        baseBranch: 'main',
+      }),
+    );
+  });
+
+  it('keeps the panel visible in focus mode without changing the preference', async () => {
+    setStore('focusMode', true);
+    await openDraft();
+    expect(
+      container.querySelector('[data-new-task-panel]')?.parentElement?.style.visibility,
+    ).not.toBe('hidden');
+    expect(store.focusMode).toBe(true);
+    Array.from(container.querySelectorAll('button'))
+      .find((el) => el.textContent === 'Cancel')
+      ?.click();
+    expect(store.showNewTaskPanel).toBe(false);
+    expect(store.focusMode).toBe(true);
+  });
+
+  it('prevents duplicate submissions and dismissal while creation is pending', async () => {
+    const prompt = await openDraft();
+    let finish!: (taskId: string) => void;
+    vi.mocked(createTask).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const form = container.querySelector('form');
+    assert(form);
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(createTask).toHaveBeenCalledOnce();
+    expect(
+      Array.from(container.querySelectorAll('button')).find((el) => el.textContent === 'Cancel')
+        ?.disabled,
+    ).toBe(true);
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(store.showNewTaskPanel).toBe(true);
+    finish('created-task');
+    await vi.waitFor(() => expect(store.showNewTaskPanel).toBe(false));
+  });
+
+  it('prefills immediately and does not reclaim focus when agent discovery finishes', async () => {
+    const agents = [...store.availableAgents];
+    let resolveAgents!: (value: typeof agents) => void;
+    const pending = new Promise<typeof agents>((resolve) => {
+      resolveAgents = resolve;
+    });
+    const originalInvoke = vi.mocked(invoke).getMockImplementation();
+    assert(originalInvoke);
+    vi.mocked(invoke).mockImplementation((channel, args) =>
+      channel === IPC.ListAgents ? pending : originalInvoke(channel, args),
+    );
+    setStore('availableAgents', []);
+    setStore('newTaskPrefillPrompt', { prompt: 'Compare these results', projectId: 'project' });
+    toggleNewTaskPanel(true);
+    const prompt = container.querySelector('textarea');
+    assert(prompt);
+    expect(prompt.value).toBe('Compare these results');
+    prompt.value = 'Edited comparison';
+    prompt.dispatchEvent(new Event('input', { bubbles: true }));
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    resolveAgents(agents);
+    await vi.waitFor(() =>
+      expect(container.querySelector('[role="radio"][aria-checked="true"]')).not.toBeNull(),
+    );
+    expect(prompt.value).toBe('Edited comparison');
+    expect(document.activeElement).toBe(outside);
+  });
+});

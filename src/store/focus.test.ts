@@ -14,7 +14,7 @@ type MockStore = {
   sidebarFocusedTaskId: string | null;
   placeholderFocused: boolean;
   placeholderFocusedButton: 'add-task' | 'add-terminal';
-  showNewTaskDialog: boolean;
+  showNewTaskPanel: boolean;
   showHelpDialog: boolean;
   showSettingsDialog: boolean;
   showPromptInput: boolean;
@@ -109,7 +109,7 @@ beforeEach(() => {
     sidebarFocusedTaskId: null,
     placeholderFocused: false,
     placeholderFocusedButton: 'add-task',
-    showNewTaskDialog: false,
+    showNewTaskPanel: false,
     showHelpDialog: false,
     showSettingsDialog: false,
     showPromptInput: true,

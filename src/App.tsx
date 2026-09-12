@@ -20,7 +20,6 @@ import { CLOSE_DIALOG_BUTTONS, resolveCloseChoice } from './lib/close-decision';
 import { resolveShellCloseTarget } from './store/close-target';
 import { Sidebar } from './components/Sidebar';
 import { TilingLayout } from './components/TilingLayout';
-import { NewTaskDialog } from './components/NewTaskDialog';
 import { HelpDialog } from './components/HelpDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { WindowTitleBar } from './components/WindowTitleBar';
@@ -33,7 +32,7 @@ import {
   loadAgents,
   loadState,
   saveState,
-  toggleNewTaskDialog,
+  toggleNewTaskPanel,
   toggleSidebar,
   toggleArena,
   moveActiveTask,
@@ -222,7 +221,7 @@ function App() {
     const url = extractGitHubUrl(e.dataTransfer);
     if (!url) return;
     setNewTaskDropUrl(url);
-    toggleNewTaskDialog(true);
+    toggleNewTaskPanel(true);
   }
 
   let unlistenFocusChanged: (() => void) | null = null;
@@ -574,7 +573,7 @@ function App() {
     });
 
     const handlePaste = (e: ClipboardEvent) => {
-      if (store.showNewTaskDialog || store.showHelpDialog || store.showSettingsDialog) return;
+      if (store.showNewTaskPanel || store.showHelpDialog || store.showSettingsDialog) return;
       const el = document.activeElement;
       if (
         el instanceof HTMLInputElement ||
@@ -588,7 +587,7 @@ function App() {
       if (text && isGitHubUrl(text)) {
         e.preventDefault();
         setNewTaskDropUrl(text);
-        toggleNewTaskDialog(true);
+        toggleNewTaskPanel(true);
       }
     };
     document.addEventListener('paste', handlePaste);
@@ -702,7 +701,7 @@ function App() {
       createTerminal: (e) => {
         if (!e.repeat) createTerminal();
       },
-      newTask: () => toggleNewTaskDialog(true),
+      newTask: () => toggleNewTaskPanel(true),
       toggleSidebar: () => toggleSidebar(),
       toggleFocusMode: () => toggleTaskFocusMode(),
       toggleHelp: () => toggleHelpDialog(),
@@ -731,10 +730,6 @@ function App() {
         }
         if (store.showSettingsDialog) {
           toggleSettingsDialog(false);
-          return;
-        }
-        if (store.showNewTaskDialog) {
-          toggleNewTaskDialog(false);
           return;
         }
       },
@@ -946,10 +941,6 @@ function App() {
               <DocumentWorkspaceOverlay />
             </Show>
           </div>
-          <NewTaskDialog
-            open={store.showNewTaskDialog}
-            onClose={() => toggleNewTaskDialog(false)}
-          />
         </main>
         <UsageStatusBar />
         <HelpDialog open={store.showHelpDialog} onClose={() => toggleHelpDialog(false)} />

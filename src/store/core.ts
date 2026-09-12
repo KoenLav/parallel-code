@@ -25,7 +25,7 @@ export const [store, setStore] = createStore<AppStore>({
   availableAgents: [],
   customAgents: [],
   agentEnvFiles: {},
-  showNewTaskDialog: false,
+  showNewTaskPanel: false,
   sidebarVisible: true,
   panelUserSize: {},
   globalScale: 1,

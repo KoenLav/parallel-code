@@ -20,11 +20,13 @@ import {
   setPanelUserSize,
   deletePanelUserSize,
   scrollTaskElementIntoView,
+  toggleNewTaskPanel,
 } from '../store/store';
 import { codeProjects } from '../store/projects';
 import { closeTask } from '../store/tasks';
 import { TaskPanel } from './TaskPanel';
 import { TerminalPanel } from './TerminalPanel';
+import { NewTaskPanel } from './NewTaskPanel';
 import { NewTaskPlaceholder } from './NewTaskPlaceholder';
 import { markDirty } from '../lib/terminalFitManager';
 import { theme } from '../lib/theme';
@@ -49,6 +51,7 @@ interface TileChild {
 }
 
 export function TilingLayout() {
+  const focusMode = () => store.focusMode && store.taskOrder.length > 0 && !store.showNewTaskPanel;
   let containerRef: HTMLDivElement | undefined;
   const [hasOverflowLeft, setHasOverflowLeft] = createSignal(false);
   const [hasOverflowRight, setHasOverflowRight] = createSignal(false);
@@ -86,7 +89,7 @@ export function TilingLayout() {
   };
 
   const updateViewportState = () => {
-    if (!containerRef || store.focusMode) {
+    if (!containerRef || focusMode()) {
       setHasOverflowLeft(false);
       setHasOverflowRight(false);
       syncTaskViewportVisibility({});
@@ -134,7 +137,7 @@ export function TilingLayout() {
   onMount(() => {
     if (!containerRef) return;
     const handleWheel = createCtrlShiftWheelResizeHandler((deltaPx) => {
-      if (store.focusMode) return;
+      if (focusMode()) return;
       // Single batch so every consumer of `panelUserSize` (each panel wrapper)
       // re-runs once per wheel tick instead of once per modified key.
       batch(() => {
@@ -194,7 +197,8 @@ export function TilingLayout() {
   createEffect(() => {
     const activeId = store.activeTaskId;
     if (!containerRef) return;
-    if (store.focusMode) return;
+    if (focusMode()) return;
+    if (store.showNewTaskPanel && !activeId) return;
     if (!activeId) {
       updateViewportState();
       return;
@@ -209,12 +213,22 @@ export function TilingLayout() {
     requestAnimationFrame(() => updateViewportState());
   });
 
+  createEffect(() => {
+    if (!store.showNewTaskPanel) return;
+    const frame = requestAnimationFrame(() => {
+      const draft = containerRef?.querySelector<HTMLElement>('[data-new-task-panel]');
+      if (containerRef && draft) scrollTaskElementIntoView(containerRef, draft, 'instant');
+      updateViewportState();
+    });
+    onCleanup(() => cancelAnimationFrame(frame));
+  });
+
   // In focus mode: re-fit terminals of the newly active task so xterm picks up
   // the full-width container dimensions (visibility:hidden doesn't trigger
   // ResizeObserver).
   createEffect(() => {
     const activeId = store.activeTaskId;
-    if (!store.focusMode || !activeId) return;
+    if (!focusMode() || !activeId) return;
     const task = store.tasks[activeId];
     if (task) {
       for (const agentId of task.agentIds) markDirty(agentId);
@@ -230,7 +244,8 @@ export function TilingLayout() {
 
   const panelChildren = createMemo((): TileChild[] => {
     const currentIds = new Set<string>(store.taskOrder);
-    currentIds.add('__placeholder');
+    if (store.taskOrder.length > 0) currentIds.add('__placeholder');
+    if (store.showNewTaskPanel) currentIds.add('__new-task');
 
     // Remove stale entries for deleted tasks
     for (const key of panelCache.keys()) {
@@ -264,7 +279,7 @@ export function TilingLayout() {
                   // top/bottom gap, so a column lines up with the document
                   // workspace and the sidebar island beside it.
                   padding: store.themePreset.startsWith('islands-')
-                    ? store.focusMode
+                    ? focusMode()
                       ? '0'
                       : '0 1px'
                     : '0 3px',
@@ -364,17 +379,35 @@ export function TilingLayout() {
       return cached;
     });
 
-    let placeholder = panelCache.get('__placeholder');
-    if (!placeholder) {
-      placeholder = {
-        id: '__placeholder',
-        initialSize: 54,
-        fixed: true,
-        content: () => <NewTaskPlaceholder />,
-      };
-      panelCache.set('__placeholder', placeholder);
+    if (store.showNewTaskPanel) {
+      let draft = panelCache.get('__new-task');
+      if (!draft) {
+        draft = {
+          id: '__new-task',
+          initialSize: TASK_TILE_DEFAULT_WIDTH,
+          minSize: TASK_TILE_MIN_WIDTH,
+          content: () => (
+            <NewTaskPanel open={store.showNewTaskPanel} onClose={() => toggleNewTaskPanel(false)} />
+          ),
+        };
+        panelCache.set('__new-task', draft);
+      }
+      panels.push(draft);
     }
-    panels.push(placeholder);
+
+    if (store.taskOrder.length > 0) {
+      let placeholder = panelCache.get('__placeholder');
+      if (!placeholder) {
+        placeholder = {
+          id: '__placeholder',
+          initialSize: 54,
+          fixed: true,
+          content: () => <NewTaskPlaceholder />,
+        };
+        panelCache.set('__placeholder', placeholder);
+      }
+      panels.push(placeholder);
+    }
 
     return panels;
   });
@@ -410,16 +443,28 @@ export function TilingLayout() {
   return (
     <div class="tiling-layout-shell">
       <div ref={containerRef} class="tiling-layout-strip" data-tiling-strip>
-        <Show
-          when={store.taskOrder.length > 0}
-          fallback={
+        <div
+          style={{
+            display: 'flex',
+            'flex-direction': 'row',
+            height: '100%',
+            position: 'relative',
+            ...(focusMode()
+              ? { width: '100%', overflow: 'hidden' }
+              : { width: 'fit-content', 'min-width': '100%' }),
+          }}
+        >
+          <Show when={store.taskOrder.length === 0 && !store.showNewTaskPanel}>
             <div
               class="empty-state"
               style={{
                 display: 'flex',
                 'align-items': 'center',
                 'justify-content': 'center',
-                width: '100%',
+                flex: '1',
+                'min-width': '0',
+                padding: '20px',
+                'box-sizing': 'border-box',
                 height: '100%',
                 'flex-direction': 'column',
                 gap: '16px',
@@ -517,22 +562,6 @@ export function TilingLayout() {
                     </>
                   }
                 >
-                  <div
-                    style={{
-                      width: '56px',
-                      height: '56px',
-                      'border-radius': 'var(--radius-lg)',
-                      background: theme.islandBg,
-                      border: `1px solid ${theme.border}`,
-                      display: 'flex',
-                      'align-items': 'center',
-                      'justify-content': 'center',
-                      'font-size': '25px',
-                      color: theme.fgSubtle,
-                    }}
-                  >
-                    +
-                  </div>
                   <div style={{ 'text-align': 'center' }}>
                     <div
                       style={{
@@ -564,71 +593,58 @@ export function TilingLayout() {
                 </Show>
               </Show>
             </div>
-          }
-        >
-          <div
-            style={{
-              display: 'flex',
-              'flex-direction': 'row',
-              height: '100%',
-              position: 'relative',
-              ...(store.focusMode
-                ? { width: '100%', overflow: 'hidden' }
-                : { width: 'fit-content', 'min-width': '100%' }),
-            }}
-          >
-            <For each={panelChildren()}>
-              {(child, i) => {
-                const wrapperStyle = createMemo((): JSX.CSSProperties => {
-                  const isPlaceholder = child.id === '__placeholder';
-                  if (store.focusMode) {
-                    if (isPlaceholder) return { display: 'none' };
-                    const isActive = child.id === store.activeTaskId;
-                    return {
-                      position: 'absolute',
-                      inset: store.themePreset.startsWith('islands-') ? '0 4px 0 0' : '0',
-                      width: '100%',
-                      height: '100%',
-                      visibility: isActive ? 'visible' : 'hidden',
-                      'pointer-events': isActive ? 'auto' : 'none',
-                      overflow: 'hidden',
-                    };
-                  }
-                  const s = sizeFor(child);
-                  const min = child.minSize ?? 0;
+          </Show>
+          <For each={panelChildren()}>
+            {(child, i) => {
+              const wrapperStyle = createMemo((): JSX.CSSProperties => {
+                const isPlaceholder = child.id === '__placeholder';
+                if (focusMode()) {
+                  if (isPlaceholder) return { display: 'none' };
+                  const isActive = child.id === store.activeTaskId;
                   return {
-                    width: `${s}px`,
-                    'min-width': `${min}px`,
-                    'flex-shrink': '0',
+                    position: 'absolute',
+                    inset: store.themePreset.startsWith('islands-') ? '0 4px 0 0' : '0',
+                    width: '100%',
+                    height: '100%',
+                    visibility: isActive ? 'visible' : 'hidden',
+                    'pointer-events': isActive ? 'auto' : 'none',
                     overflow: 'hidden',
                   };
-                });
-                const showHandle = () =>
-                  !store.focusMode && !child.fixed && i() < panelChildren().length - 1;
-                return (
-                  <>
-                    <div style={wrapperStyle()}>{child.content()}</div>
-                    <Show when={showHandle()}>
-                      <div
-                        class={`resize-handle resize-handle-h ${dragging() === i() ? 'dragging' : ''}`}
-                        onMouseDown={(e) => handleDragStart(i(), e)}
-                        onDblClick={() => {
-                          if (dragging() !== null) return;
-                          const panels = panelChildren();
-                          const left = panels[i()];
-                          const right = panels[i() + 1];
-                          if (!left || !right) return;
-                          deletePanelUserSize([`tiling:${left.id}`, `tiling:${right.id}`]);
-                          requestAnimationFrame(() => updateViewportState());
-                        }}
-                      />
-                    </Show>
-                  </>
-                );
-              }}
-            </For>
-          </div>
-        </Show>
+                }
+                const s = sizeFor(child);
+                const min = child.minSize ?? 0;
+                return {
+                  width: `${s}px`,
+                  'min-width': `${min}px`,
+                  'flex-shrink': '0',
+                  overflow: 'hidden',
+                };
+              });
+              const showHandle = () =>
+                !focusMode() && !child.fixed && i() < panelChildren().length - 1;
+              return (
+                <>
+                  <div style={wrapperStyle()}>{child.content()}</div>
+                  <Show when={showHandle()}>
+                    <div
+                      class={`resize-handle resize-handle-h ${dragging() === i() ? 'dragging' : ''}`}
+                      onMouseDown={(e) => handleDragStart(i(), e)}
+                      onDblClick={() => {
+                        if (dragging() !== null) return;
+                        const panels = panelChildren();
+                        const left = panels[i()];
+                        const right = panels[i() + 1];
+                        if (!left || !right) return;
+                        deletePanelUserSize([`tiling:${left.id}`, `tiling:${right.id}`]);
+                        requestAnimationFrame(() => updateViewportState());
+                      }}
+                    />
+                  </Show>
+                </>
+              );
+            }}
+          </For>
+        </div>
       </div>
 
       <Show when={hasOverflowLeft()}>

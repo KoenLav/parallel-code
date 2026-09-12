@@ -1637,6 +1637,10 @@ textarea::placeholder {
   animation: taskAppear 0.24s ease;
 }
 
+.new-task-appearing {
+  animation: taskAppear 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
 /* No max-height here: rows whose name wraps to two lines are taller than any
    fixed cap, and a cap clips the second line for the length of the animation. */
 @keyframes taskItemAppear {
@@ -1755,11 +1759,11 @@ textarea::placeholder {
   animation: slideUp 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
-.new-task-dialog-form {
+.new-task-panel-form {
   user-select: none;
 }
 
-.new-task-dialog-form :is(input, textarea) {
+.new-task-panel-form :is(input, textarea) {
   user-select: text;
 }
 
@@ -2896,6 +2900,7 @@ body.dragging-task * {
   }
 
   .task-appearing,
+  .new-task-appearing,
   .task-item-appearing,
   .task-removing,
   .task-item-removing,

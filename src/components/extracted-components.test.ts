@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { presetsForTone } from '../lib/look';
 import { setStore } from '../store/core';
-import { CheckboxOption, InlineBanner } from './NewTaskDialog';
+import { CheckboxOption, InlineBanner } from './NewTaskPanel';
 import { PresetThemeCard, SettingsCheckboxRow } from './SettingsDialog';
 import { TaskRowShell } from './Sidebar';
 

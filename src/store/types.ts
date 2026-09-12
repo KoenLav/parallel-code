@@ -430,7 +430,7 @@ export interface AppStore {
   /** Agent id → path of a `KEY=VALUE` file merged into that agent's environment
    *  at spawn. Only the path is stored here; secrets stay in the file on disk. */
   agentEnvFiles: Record<string, string>;
-  showNewTaskDialog: boolean;
+  showNewTaskPanel: boolean;
   sidebarVisible: boolean;
   /** User-dragged sizes keyed by `${persistKey}:${childId}`. Presence of an
    *  entry means that panel is pinned; absence means it's content-sized or

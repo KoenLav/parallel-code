@@ -235,7 +235,7 @@ function navigateAiTerminalColumn(
 }
 
 export function navigateRow(direction: 'up' | 'down'): void {
-  if (store.showNewTaskDialog || store.showHelpDialog || store.showSettingsDialog) return;
+  if (store.showHelpDialog || store.showSettingsDialog) return;
 
   if (store.placeholderFocused) {
     const btn = direction === 'up' ? 'add-task' : 'add-terminal';
@@ -353,7 +353,7 @@ export function navigateRow(direction: 'up' | 'down'): void {
 }
 
 export function navigateColumn(direction: 'left' | 'right'): void {
-  if (store.showNewTaskDialog || store.showHelpDialog || store.showSettingsDialog) return;
+  if (store.showHelpDialog || store.showSettingsDialog) return;
 
   const taskId = store.activeTaskId;
 
@@ -468,7 +468,7 @@ export function navigateColumn(direction: 'left' | 'right'): void {
  * they are skipped — same semantics as `navigateColumn`'s cross-task path.
  */
 export function navigateTask(direction: 'left' | 'right'): void {
-  if (store.showNewTaskDialog || store.showHelpDialog || store.showSettingsDialog) return;
+  if (store.showHelpDialog || store.showSettingsDialog) return;
 
   const { taskOrder, activeTaskId } = store;
   if (!activeTaskId) return;

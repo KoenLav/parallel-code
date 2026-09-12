@@ -88,7 +88,7 @@ export {
   setActiveAgent,
   moveActiveTask,
   jumpToTask,
-  toggleNewTaskDialog,
+  toggleNewTaskPanel,
 } from './navigation';
 export {
   registerFocusFn,

@@ -4,7 +4,7 @@ import { errMessage } from '../lib/log';
 import {
   store,
   pickAndAddProject,
-  toggleNewTaskDialog,
+  toggleNewTaskPanel,
   setActiveTask,
   toggleSidebar,
   reorderTaskVisually,
@@ -1008,7 +1008,7 @@ export function Sidebar() {
         >
           <button
             class="icon-btn"
-            onClick={() => toggleNewTaskDialog(true)}
+            onClick={() => toggleNewTaskPanel(true)}
             style={{
               background: 'transparent',
               border: `1px solid ${theme.border}`,

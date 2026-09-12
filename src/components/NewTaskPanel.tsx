@@ -5,11 +5,14 @@ import {
   createUniqueId,
   Show,
   onCleanup,
+  onMount,
   on,
   untrack,
 } from 'solid-js';
 import type { JSX } from 'solid-js';
-import { Dialog } from './Dialog';
+import { createFocusRestore } from '../lib/focus-restore';
+import { topDialog } from '../lib/dialog-stack';
+import { registerFocusFn, unregisterFocusFn } from '../store/focused-panel';
 import { FolderIcon, GitBranchIcon } from './icons';
 import { ConfirmDialog } from './ConfirmDialog';
 import { errMessage } from '../lib/log';
@@ -19,7 +22,7 @@ import { resolveSkipPermissionsArgs } from '../../electron/shared/skip-permissio
 import {
   store,
   createTask,
-  toggleNewTaskDialog,
+  toggleNewTaskPanel,
   loadAgents,
   getProject,
   getProjectPath,
@@ -65,7 +68,7 @@ import {
   MIN_COORDINATOR_CONCURRENT_TASKS,
 } from '../lib/coordinator-limits';
 
-interface NewTaskDialogProps {
+interface NewTaskPanelProps {
   open: boolean;
   onClose: () => void;
 }
@@ -380,8 +383,9 @@ function CoordinatorTaskOptions(props: {
   );
 }
 
-export function NewTaskDialog(props: NewTaskDialogProps) {
+export function NewTaskPanel(props: NewTaskPanelProps) {
   const [prompt, setPrompt] = createSignal('');
+  const [advancedOpen, setAdvancedOpen] = createSignal(false);
   // Prompt/name values right after open/prefill — closing is only guarded when
   // the user has typed something beyond them.
   const [initialPrompt, setInitialPrompt] = createSignal('');
@@ -435,6 +439,10 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
   let promptRef!: HTMLTextAreaElement;
   const titleId = createUniqueId();
   const branchInputId = createUniqueId();
+  const advancedOptionsId = createUniqueId();
+  const promptInputId = createUniqueId();
+  const nameInputId = createUniqueId();
+  let panelRef!: HTMLElement;
   let formRef!: HTMLFormElement;
   let buildOutputRef!: HTMLPreElement;
   let scrollContainerRef!: HTMLDivElement;
@@ -442,7 +450,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
   const focusableSelector =
     'textarea:not(:disabled), input:not(:disabled), select:not(:disabled), button:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
-  function navigateDialogFields(direction: 'up' | 'down'): void {
+  function navigateFormFields(direction: 'up' | 'down'): void {
     if (!formRef) return;
     const sections = Array.from(formRef.querySelectorAll<HTMLElement>('[data-nav-field]'));
     if (sections.length === 0) return;
@@ -487,9 +495,9 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
     focusables[nextIdx].focus();
   }
 
-  // Initialize state each time the dialog opens.  Wrapped in on() so the
+  // Initialize state each time the panel opens.  Wrapped in on() so the
   // effect only re-fires on the props.open *transition*, not whenever any
-  // store default mutates while the dialog is already open (e.g. the user
+  // store default mutates while the panel is already open (e.g. the user
   // toggling Settings, or autosave restoring state).  untrack() ensures the
   // store reads inside are one-shot samples, not new reactive subscriptions.
   createEffect(
@@ -503,11 +511,10 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
           setPropagateSkipPermissions(store.defaultPropagateSkipPermissions);
         });
       },
-      { defer: true },
     ),
   );
 
-  // Initialize remaining state each time the dialog opens.  Same on()+untrack
+  // Initialize remaining state each time the panel opens.  Same on()+untrack
   // guard as the effect above: fire only on the props.open *transition* and
   // untrack the body, so no store read — nor the prompt/name snapshot below —
   // subscribes the effect. Otherwise a tracked read (e.g. the synchronous
@@ -520,11 +527,12 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
       (open) => {
         if (!open) return;
         untrack(() => {
-          // Reset signals for a fresh dialog
+          // Reset signals for a fresh draft
           setPrompt('');
           setInitialPrompt('');
           setInitialName('');
           setConfirmDiscard(false);
+          setAdvancedOpen(false);
           setName('');
           setError('');
           setLoading(false);
@@ -537,20 +545,16 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
           setProjectDockerfile(null);
           setCoordinatorMode(false);
 
+          let cancelled = false;
+          onCleanup(() => {
+            cancelled = true;
+          });
           void (async () => {
             // Check Docker availability in background
             invoke<boolean>(IPC.CheckDockerAvailable).then(
               (available) => setDockerAvailable(available),
               () => setDockerAvailable(false),
             );
-            if (store.availableAgents.length === 0) {
-              await loadAgents();
-            }
-            const lastAgent = store.lastAgentId
-              ? (store.availableAgents.find((a) => a.id === store.lastAgentId) ?? null)
-              : null;
-            setSelectedAgent(lastAgent ?? store.availableAgents[0] ?? null);
-
             // Pre-fill from drop data if present
             const dropUrl = store.newTaskDropUrl;
             const targets = codeProjects();
@@ -573,16 +577,25 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
             setInitialPrompt(prompt());
             setInitialName(name());
 
-            promptRef?.focus();
-          })();
+            if (store.availableAgents.length === 0) {
+              await loadAgents();
+            }
+            if (cancelled) return;
+            const lastAgent = store.lastAgentId
+              ? (store.availableAgents.find((a) => a.id === store.lastAgentId) ?? null)
+              : null;
+            setSelectedAgent(lastAgent ?? store.availableAgents[0] ?? null);
+          })().catch((err) => {
+            if (!cancelled) setError(errMessage(err));
+          });
 
           // Capture-phase handler for Alt+Arrow to navigate form sections / within fields
           const handleAltArrow = (e: KeyboardEvent) => {
-            if (!e.altKey) return;
+            if (!e.altKey || !panelRef?.contains(e.target as Node) || topDialog()) return;
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
               e.preventDefault();
               e.stopImmediatePropagation();
-              navigateDialogFields(e.key === 'ArrowDown' ? 'down' : 'up');
+              navigateFormFields(e.key === 'ArrowDown' ? 'down' : 'up');
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
               // Preserve native word-jump (Alt+Arrow) in text inputs
               const tag = (document.activeElement as HTMLElement)?.tagName;
@@ -599,11 +612,10 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
           });
         });
       },
-      { defer: true },
     ),
   );
 
-  // Fetch gitignored dirs whenever the dialog opens or the project changes.
+  // Fetch gitignored dirs whenever the panel opens or the project changes.
   // Reading props.open makes the list reload on every open, so cancelling and
   // reopening always starts from the default selection — each task's symlink
   // choices are an explicit opt-in. The candidate state clears itself before
@@ -631,7 +643,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
     setBranchPrefix(pid ? getProjectBranchPrefix(pid) : 'task');
   });
 
-  // Fetch branches on every dialog open and on project change (D-02 merged effect)
+  // Fetch branches on every panel open and on project change (D-02 merged effect)
   createEffect(() => {
     // D-02, D-03: All reactive reads synchronous before any async code
     const open = props.open;
@@ -684,7 +696,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
       } catch (err) {
         if (cancelled) return;
         setBranchesLoading(false);
-        // Inline error + Retry surfaces this in the dialog; no toast needed.
+        // Inline error + Retry surfaces this in the panel; no toast needed.
         // Keep the detail in the console for diagnostics.
         setBranchesError(true);
         console.error('Failed to load branches:', err);
@@ -871,6 +883,11 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
     return c ? branchPrefixConflictError(c) : '';
   });
 
+  // Validation must stay reachable even when the optional settings are collapsed.
+  createEffect(() => {
+    if (branchesError() || branchPrefixError()) setAdvancedOpen(true);
+  });
+
   const selectedProjectPath = () => {
     const pid = selectedProjectId();
     return pid ? getProjectPath(pid) : undefined;
@@ -916,6 +933,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
+    if (!canSubmit()) return;
     const manualName = name().trim();
     const n = resolvedName();
 
@@ -1012,7 +1030,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
       if (isFromDrop && p) {
         setPrefillPrompt(taskId, p);
       }
-      toggleNewTaskDialog(false);
+      toggleNewTaskPanel(false);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -1020,9 +1038,9 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
     }
   }
 
-  // Guard against a misclick on the overlay (or Escape/Cancel) silently
-  // discarding a typed prompt or task name — state is reset on next open.
+  // Preserve typed drafts until the user explicitly discards them.
   function requestClose() {
+    if (loading()) return;
     const dirty =
       prompt().trim() !== initialPrompt().trim() || name().trim() !== initialName().trim();
     if (dirty) {
@@ -1032,22 +1050,49 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
     }
   }
 
+  createFocusRestore(() => props.open);
+  onMount(() => {
+    promptRef?.focus();
+    registerFocusFn('new-task', () => promptRef?.focus());
+    onCleanup(() => unregisterFocusFn('new-task'));
+  });
+  createEffect(() => {
+    if (!props.open) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || topDialog() || !panelRef?.contains(e.target as Node)) return;
+      e.stopImmediatePropagation();
+      requestClose();
+    };
+    document.addEventListener('keydown', handleEscape);
+    onCleanup(() => document.removeEventListener('keydown', handleEscape));
+  });
+
   return (
-    <Dialog
-      open={props.open}
-      onClose={requestClose}
-      width={store.availableAgents.length > 8 ? 'min(840px, calc(100vw - 48px))' : '560px'}
-      labelledBy={titleId}
-      panelStyle={{ padding: '0', overflow: 'hidden', gap: '0' }}
+    <section
+      ref={panelRef}
+      aria-labelledby={titleId}
+      data-new-task-panel
+      class="new-task-appearing"
+      style={{
+        height: '100%',
+        display: 'flex',
+        'flex-direction': 'column',
+        background: theme.islandBg,
+        border: `1px solid ${theme.border}`,
+        'border-radius': 'var(--radius-lg)',
+        overflow: 'hidden',
+        'box-sizing': 'border-box',
+      }}
     >
       <form
         ref={formRef}
-        class="new-task-dialog-form"
+        class="new-task-panel-form"
         onSubmit={handleSubmit}
         style={{
           display: 'flex',
           'flex-direction': 'column',
           'min-height': '0',
+          flex: '1',
           overflow: 'hidden',
         }}
       >
@@ -1060,7 +1105,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
             display: 'flex',
             'flex-direction': 'column',
             gap: '20px',
-            padding: '28px 28px 20px',
+            padding: '20px',
           }}
         >
           <div>
@@ -1077,25 +1122,17 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
             </h2>
           </div>
 
-          {/* Project selector */}
-          <div
-            data-nav-field="project"
-            style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
-          >
-            <label style={sectionLabelStyle}>Project</label>
-            <ProjectSelect value={selectedProjectId()} onChange={setSelectedProjectId} />
-          </div>
-
           {/* Prompt input (optional) */}
           <div
             data-nav-field="prompt"
             style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
           >
-            <label style={sectionLabelStyle}>
+            <label for={promptInputId} style={sectionLabelStyle}>
               Prompt <span style={{ opacity: '0.5', 'text-transform': 'none' }}>(optional)</span>
             </label>
             <textarea
               ref={promptRef}
+              id={promptInputId}
               class="input-field"
               value={prompt()}
               onInput={(e) => setPrompt(e.currentTarget.value)}
@@ -1111,7 +1148,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
                   ? 'Example: Work through the items in /path/to/todos.md. Only work from that file. Use <branch> as the baseBranch for all sub-tasks.'
                   : 'What should the agent work on?'
               }
-              rows={3}
+              rows={6}
               style={{
                 background: theme.bgInput,
                 border: `1px solid ${theme.border}`,
@@ -1126,65 +1163,14 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
             />
           </div>
 
+          {/* Project selector */}
           <div
-            data-nav-field="task-name"
+            data-nav-field="project"
             style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
           >
-            <label style={sectionLabelStyle}>
-              Task name{' '}
-              <span style={{ opacity: '0.5', 'text-transform': 'none' }}>
-                (optional — derived from prompt)
-              </span>
-            </label>
-            <input
-              class="input-field"
-              type="text"
-              value={name()}
-              onInput={(e) => setName(e.currentTarget.value)}
-              placeholder={resolvedName()}
-              style={{
-                background: theme.bgInput,
-                border: `1px solid ${theme.border}`,
-                'border-radius': 'var(--radius-md)',
-                padding: '10px 14px',
-                color: theme.fg,
-                'font-size': '14px',
-                outline: 'none',
-              }}
-            />
-            <Show when={gitIsolation() === 'direct' && !isNonGitProject() && selectedProjectPath()}>
-              <div
-                style={{
-                  'font-size': '12px',
-                  'font-family': "'JetBrains Mono', monospace",
-                  color: theme.fgSubtle,
-                  display: 'flex',
-                  'flex-direction': 'column',
-                  gap: '2px',
-                  padding: '4px 2px 0',
-                }}
-              >
-                <span style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
-                  <GitBranchIcon size={11} style={{ 'flex-shrink': '0' }} />
-                  main branch (detected on create)
-                </span>
-                <span style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
-                  <FolderIcon size={11} style={{ 'flex-shrink': '0' }} />
-                  {selectedProjectPath()}
-                </span>
-              </div>
-            </Show>
+            <label style={sectionLabelStyle}>Project</label>
+            <ProjectSelect value={selectedProjectId()} onChange={setSelectedProjectId} />
           </div>
-
-          <Show when={gitIsolation() === 'worktree'}>
-            <BranchPrefixField
-              branchPrefix={branchPrefix()}
-              branchPreview={branchPreview()}
-              error={branchPrefixError()}
-              projectPath={selectedProjectPath()}
-              onPrefixChange={setBranchPrefix}
-            />
-          </Show>
 
           <AgentSelector
             agents={store.availableAgents}
@@ -1193,190 +1179,300 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
             wrap={false}
           />
 
-          {/* Isolation mode selector — hidden for non-git projects */}
-          <Show when={!isNonGitProject()}>
-            <div
-              data-nav-field="git-isolation"
-              style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
-            >
-              <label style={sectionLabelStyle}>Git Isolation</label>
-              <SegmentedButtons
-                options={[
-                  {
-                    value: 'worktree',
-                    label: 'Worktree',
-                    title:
-                      'Creates a git branch and worktree so the AI agent can work in isolation without affecting your current branch.',
-                  },
-                  {
-                    value: 'direct',
-                    label: 'Current Branch',
-                    disabled: directDisabled(),
-                    title: 'The AI agent will work on your current branch in the project root.',
-                  },
-                ]}
-                value={gitIsolation()}
-                onChange={setGitIsolation}
-              />
-              <Show when={directDisabled()}>
-                <span style={{ 'font-size': '12px', color: theme.fgSubtle }}>
-                  This project already has a task on the current branch
-                </span>
-              </Show>
-              <Show when={gitIsolation() === 'direct'}>
-                <div style={{ ...bannerStyle(theme.warning), 'font-size': '13px' }}>
-                  Changes will be made on the selected branch without worktree isolation.
-                </div>
-              </Show>
-            </div>
+          <Show when={gitIsolation() === 'direct' && !isNonGitProject()}>
+            <InlineBanner color={theme.warning}>
+              Changes will be made on the selected branch without worktree isolation.
+            </InlineBanner>
+          </Show>
+          <Show when={agentSupportsSkipPermissions() && skipPermissions()}>
+            <InlineBanner color={theme.warning}>
+              The agent will run without asking for confirmation. It can read, write, and delete
+              files, and execute commands without your approval.
+            </InlineBanner>
           </Show>
 
-          {/* Branch picker — hidden for non-git projects */}
-          <Show when={!isNonGitProject()}>
-            <div
-              data-nav-field="base-branch"
-              style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
+          <div
+            data-nav-field="advanced-options"
+            style={{ 'border-top': `1px solid ${theme.border}`, 'padding-top': '16px' }}
+          >
+            <button
+              type="button"
+              aria-expanded={advancedOpen()}
+              aria-controls={advancedOptionsId}
+              onClick={() => setAdvancedOpen((open) => !open)}
+              style={{
+                display: 'flex',
+                'align-items': 'center',
+                gap: '8px',
+                width: '100%',
+                padding: '4px 0',
+                background: 'transparent',
+                border: 'none',
+                color: theme.fgMuted,
+                'font-size': '13px',
+                'text-align': 'left',
+                cursor: 'pointer',
+              }}
             >
-              {/* On a load failure the combobox is unmounted, so only point
-                  the label at it while it is actually rendered. */}
-              <label
-                for={branchesError() ? undefined : branchInputId}
-                style={{ ...sectionLabelStyle, 'align-self': 'flex-start' }}
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+                style={{ transform: advancedOpen() ? 'rotate(90deg)' : undefined }}
               >
-                {gitIsolation() === 'worktree' ? 'Base branch' : 'Branch'}
-                <Show when={branchesLoading()}>
-                  {' '}
-                  <span
-                    class="inline-spinner"
-                    aria-hidden="true"
-                    style={{ 'vertical-align': 'middle' }}
-                  />
-                </Show>
-              </label>
-              {/* On a load failure, swap the empty picker for the error +
-                  Retry — an empty combobox reading "No matching branches"
-                  would misrepresent a fetch failure as an empty repo. */}
-              <Show
-                when={!branchesError()}
-                fallback={
-                  <div
-                    role="alert"
-                    style={{
-                      display: 'flex',
-                      'align-items': 'center',
-                      gap: '8px',
-                      'font-size': '12px',
-                      color: theme.error,
-                    }}
-                  >
-                    <span>Couldn't load branches.</span>
-                    <button
-                      type="button"
-                      onClick={() => setBranchRetryToken((n) => n + 1)}
-                      style={{
-                        background: 'transparent',
-                        border: `1px solid ${theme.border}`,
-                        'border-radius': 'var(--radius-sm)',
-                        padding: '3px 10px',
-                        color: theme.fg,
-                        'font-size': '12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Retry
-                    </button>
-                  </div>
-                }
-              >
-                <BranchCombobox
-                  id={branchInputId}
-                  branches={branches()}
-                  value={baseBranch()}
-                  onChange={setBaseBranch}
-                  loading={branchesLoading()}
-                />
-              </Show>
-            </div>
-          </Show>
-
-          {/* Checkboxes group */}
-          <div style={{ display: 'flex', 'flex-direction': 'column', gap: '10px' }}>
-            <div data-nav-field="steps-enabled">
-              <CheckboxOption
-                title="Instructs the agent to append progress entries to .claude/steps.json. Each entry is shown live in the Steps panel as the agent works."
-                label="Steps tracking"
-                checked={stepsEnabled()}
-                onChange={setStepsEnabled}
-              />
-            </div>
-
-            <Show when={agentSupportsSkipPermissions()}>
+                <path d="m6 3 5 5-5 5" stroke="currentColor" stroke-width="1.5" />
+              </svg>
+              Advanced options
+            </button>
+          </div>
+          <Show when={advancedOpen()}>
+            <div
+              id={advancedOptionsId}
+              style={{ display: 'flex', 'flex-direction': 'column', gap: '20px' }}
+            >
               <div
-                data-nav-field="skip-permissions"
+                data-nav-field="task-name"
                 style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
               >
-                <CheckboxOption
-                  label="Dangerously skip all confirms"
-                  checked={skipPermissions()}
-                  onChange={setSkipPermissions}
+                <label for={nameInputId} style={sectionLabelStyle}>
+                  Task name{' '}
+                  <span style={{ opacity: '0.5', 'text-transform': 'none' }}>
+                    (optional — derived from prompt)
+                  </span>
+                </label>
+                <input
+                  id={nameInputId}
+                  class="input-field"
+                  type="text"
+                  value={name()}
+                  onInput={(e) => setName(e.currentTarget.value)}
+                  placeholder={resolvedName()}
+                  style={{
+                    background: theme.bgInput,
+                    border: `1px solid ${theme.border}`,
+                    'border-radius': 'var(--radius-md)',
+                    padding: '10px 14px',
+                    color: theme.fg,
+                    'font-size': '14px',
+                    outline: 'none',
+                  }}
                 />
-                <Show when={skipPermissions()}>
-                  <InlineBanner color={theme.warning}>
-                    The agent will run without asking for confirmation. It can read, write, and
-                    delete files, and execute commands without your approval.
-                  </InlineBanner>
-                  <Show when={!dockerMode() && store.dockerAvailable}>
-                    <div style={{ 'font-size': '12px', color: theme.fgMuted }}>
-                      Tip: Enable Docker isolation to limit the blast radius of skip-permissions
-                      mode.
-                    </div>
-                  </Show>
-                  <Show when={!store.dockerAvailable}>
-                    <div style={{ 'font-size': '12px', color: theme.fgMuted }}>
-                      Install Docker to enable container isolation for safer skip-permissions mode.
-                    </div>
-                  </Show>
+                <Show
+                  when={gitIsolation() === 'direct' && !isNonGitProject() && selectedProjectPath()}
+                >
+                  <div
+                    style={{
+                      'font-size': '12px',
+                      'font-family': "'JetBrains Mono', monospace",
+                      color: theme.fgSubtle,
+                      display: 'flex',
+                      'flex-direction': 'column',
+                      gap: '2px',
+                      padding: '4px 2px 0',
+                    }}
+                  >
+                    <span style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+                      <GitBranchIcon size={11} style={{ 'flex-shrink': '0' }} />
+                      main branch (detected on create)
+                    </span>
+                    <span style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+                      <FolderIcon size={11} style={{ 'flex-shrink': '0' }} />
+                      {selectedProjectPath()}
+                    </span>
+                  </div>
                 </Show>
               </div>
-            </Show>
 
-            <DockerTaskOptions
-              dockerMode={dockerMode()}
-              setDockerMode={setDockerMode}
-              coordinatorMode={coordinatorMode()}
-              projectDockerfile={projectDockerfile()}
-              dockerImageReady={dockerImageReady()}
-              dockerBuilding={dockerBuilding()}
-              dockerBuildOutput={dockerBuildOutput()}
-              dockerBuildError={dockerBuildError()}
-              setBuildOutputRef={(el) => {
-                buildOutputRef = el;
-              }}
-              onBuildImage={handleBuildImage}
-            />
-          </div>
-          {/* end checkboxes group */}
+              <Show when={gitIsolation() === 'worktree'}>
+                <BranchPrefixField
+                  branchPrefix={branchPrefix()}
+                  branchPreview={branchPreview()}
+                  error={branchPrefixError()}
+                  projectPath={selectedProjectPath()}
+                  onPrefixChange={setBranchPrefix}
+                />
+              </Show>
 
-          {/* Coordinator mode toggle — below skip-permissions so enabling skip-perms
+              {/* Isolation mode selector — hidden for non-git projects */}
+              <Show when={!isNonGitProject()}>
+                <div
+                  data-nav-field="git-isolation"
+                  style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
+                >
+                  <label style={sectionLabelStyle}>Git Isolation</label>
+                  <SegmentedButtons
+                    options={[
+                      {
+                        value: 'worktree',
+                        label: 'Worktree',
+                        title:
+                          'Creates a git branch and worktree so the AI agent can work in isolation without affecting your current branch.',
+                      },
+                      {
+                        value: 'direct',
+                        label: 'Current Branch',
+                        disabled: directDisabled(),
+                        title: 'The AI agent will work on your current branch in the project root.',
+                      },
+                    ]}
+                    value={gitIsolation()}
+                    onChange={setGitIsolation}
+                  />
+                  <Show when={directDisabled()}>
+                    <span style={{ 'font-size': '12px', color: theme.fgSubtle }}>
+                      This project already has a task on the current branch
+                    </span>
+                  </Show>
+                </div>
+              </Show>
+
+              {/* Branch picker — hidden for non-git projects */}
+              <Show when={!isNonGitProject()}>
+                <div
+                  data-nav-field="base-branch"
+                  style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
+                >
+                  {/* On a load failure the combobox is unmounted, so only point
+                  the label at it while it is actually rendered. */}
+                  <label
+                    for={branchesError() ? undefined : branchInputId}
+                    style={{ ...sectionLabelStyle, 'align-self': 'flex-start' }}
+                  >
+                    {gitIsolation() === 'worktree' ? 'Base branch' : 'Branch'}
+                    <Show when={branchesLoading()}>
+                      {' '}
+                      <span
+                        class="inline-spinner"
+                        aria-hidden="true"
+                        style={{ 'vertical-align': 'middle' }}
+                      />
+                    </Show>
+                  </label>
+                  {/* On a load failure, swap the empty picker for the error +
+                  Retry — an empty combobox reading "No matching branches"
+                  would misrepresent a fetch failure as an empty repo. */}
+                  <Show
+                    when={!branchesError()}
+                    fallback={
+                      <div
+                        role="alert"
+                        style={{
+                          display: 'flex',
+                          'align-items': 'center',
+                          gap: '8px',
+                          'font-size': '12px',
+                          color: theme.error,
+                        }}
+                      >
+                        <span>Couldn't load branches.</span>
+                        <button
+                          type="button"
+                          onClick={() => setBranchRetryToken((n) => n + 1)}
+                          style={{
+                            background: 'transparent',
+                            border: `1px solid ${theme.border}`,
+                            'border-radius': 'var(--radius-sm)',
+                            padding: '3px 10px',
+                            color: theme.fg,
+                            'font-size': '12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    }
+                  >
+                    <BranchCombobox
+                      id={branchInputId}
+                      branches={branches()}
+                      value={baseBranch()}
+                      onChange={setBaseBranch}
+                      loading={branchesLoading()}
+                    />
+                  </Show>
+                </div>
+              </Show>
+
+              {/* Checkboxes group */}
+              <div style={{ display: 'flex', 'flex-direction': 'column', gap: '10px' }}>
+                <div data-nav-field="steps-enabled">
+                  <CheckboxOption
+                    title="Instructs the agent to append progress entries to .claude/steps.json. Each entry is shown live in the Steps panel as the agent works."
+                    label="Steps tracking"
+                    checked={stepsEnabled()}
+                    onChange={setStepsEnabled}
+                  />
+                </div>
+
+                <Show when={agentSupportsSkipPermissions()}>
+                  <div
+                    data-nav-field="skip-permissions"
+                    style={{ display: 'flex', 'flex-direction': 'column', gap: '8px' }}
+                  >
+                    <CheckboxOption
+                      label="Dangerously skip all confirms"
+                      checked={skipPermissions()}
+                      onChange={setSkipPermissions}
+                    />
+                    <Show when={skipPermissions()}>
+                      <Show when={!dockerMode() && store.dockerAvailable}>
+                        <div style={{ 'font-size': '12px', color: theme.fgMuted }}>
+                          Tip: Enable Docker isolation to limit the blast radius of skip-permissions
+                          mode.
+                        </div>
+                      </Show>
+                      <Show when={!store.dockerAvailable}>
+                        <div style={{ 'font-size': '12px', color: theme.fgMuted }}>
+                          Install Docker to enable container isolation for safer skip-permissions
+                          mode.
+                        </div>
+                      </Show>
+                    </Show>
+                  </div>
+                </Show>
+
+                <DockerTaskOptions
+                  dockerMode={dockerMode()}
+                  setDockerMode={setDockerMode}
+                  coordinatorMode={coordinatorMode()}
+                  projectDockerfile={projectDockerfile()}
+                  dockerImageReady={dockerImageReady()}
+                  dockerBuilding={dockerBuilding()}
+                  dockerBuildOutput={dockerBuildOutput()}
+                  dockerBuildError={dockerBuildError()}
+                  setBuildOutputRef={(el) => {
+                    buildOutputRef = el;
+                  }}
+                  onBuildImage={handleBuildImage}
+                />
+              </div>
+              {/* end checkboxes group */}
+
+              {/* Coordinator mode toggle — below skip-permissions so enabling skip-perms
               doesn't cause items to appear above the checkbox you just clicked */}
-          <CoordinatorTaskOptions
-            coordinatorMode={coordinatorMode()}
-            setCoordinatorMode={setCoordinatorMode}
-            hasActiveCoordinator={hasActiveCoordinator()}
-            agentSupportsSkipPermissions={agentSupportsSkipPermissions()}
-            skipPermissions={skipPermissions()}
-            propagateSkipPermissions={propagateSkipPermissions()}
-            setPropagateSkipPermissions={setPropagateSkipPermissions}
-            maxConcurrentTasks={maxConcurrentTasks()}
-            setMaxConcurrentTasks={setMaxConcurrentTasks}
-          />
+              <CoordinatorTaskOptions
+                coordinatorMode={coordinatorMode()}
+                setCoordinatorMode={setCoordinatorMode}
+                hasActiveCoordinator={hasActiveCoordinator()}
+                agentSupportsSkipPermissions={agentSupportsSkipPermissions()}
+                skipPermissions={skipPermissions()}
+                propagateSkipPermissions={propagateSkipPermissions()}
+                setPropagateSkipPermissions={setPropagateSkipPermissions}
+                maxConcurrentTasks={maxConcurrentTasks()}
+                setMaxConcurrentTasks={setMaxConcurrentTasks}
+              />
 
-          <Show when={symlinkCandidates.dirs().length > 0 && gitIsolation() === 'worktree'}>
-            <SymlinkDirPicker
-              dirs={symlinkCandidates.dirs()}
-              selectedDirs={symlinkCandidates.selected()}
-              onToggle={symlinkCandidates.toggle}
-            />
+              <Show when={symlinkCandidates.dirs().length > 0 && gitIsolation() === 'worktree'}>
+                <SymlinkDirPicker
+                  dirs={symlinkCandidates.dirs()}
+                  selectedDirs={symlinkCandidates.selected()}
+                  onToggle={symlinkCandidates.toggle}
+                />
+              </Show>
+            </div>
           </Show>
 
           <Show when={error()}>
@@ -1397,7 +1493,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
             display: 'flex',
             gap: '8px',
             'justify-content': 'flex-end',
-            padding: '16px 28px',
+            padding: '16px 20px',
             'border-top': `1px solid ${theme.border}`,
             background: theme.islandBg,
             'flex-shrink': '0',
@@ -1406,6 +1502,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
           <button
             type="button"
             class="btn-secondary"
+            disabled={loading()}
             onClick={() => requestClose()}
             style={{
               padding: '9px 18px',
@@ -1460,6 +1557,6 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
           promptRef?.focus();
         }}
       />
-    </Dialog>
+    </section>
   );
 }
