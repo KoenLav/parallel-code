@@ -14,7 +14,12 @@ export function renderMermaidIn(container: HTMLElement | undefined, key: string)
   if (nodes.length === 0) return;
   import('mermaid')
     .then(({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        // Keep failed diagrams as source; Mermaid otherwise leaves an error SVG in document.body.
+        suppressErrorRendering: true,
+      });
       nodes.forEach((el, i) => {
         // The sanitizer strips any attribute whose value contains `-->`, which
         // is most flowchart arrows, so `data-mermaid` is gone for exactly the
