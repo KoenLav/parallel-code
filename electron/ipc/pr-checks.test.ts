@@ -58,6 +58,10 @@ type GhHandler = (args: string[], cb: ExecCb, cmd: string) => void;
 function stubGh(handler: GhHandler): string[][] {
   const calls: string[][] = [];
   const impl = (cmd: string, args: string[], _opts: unknown, cb: ExecCb) => {
+    if (cmd === 'git' && args[0] === 'remote') {
+      cb(null, 'origin\n', '');
+      return;
+    }
     calls.push(args);
     handler(args, cb, cmd);
   };
@@ -263,6 +267,37 @@ describe('detectPrUrlForBranch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetForTests();
+  });
+
+  it('skips gh without remotes and discovers PRs after a remote is added', async () => {
+    let remote = '';
+    const commands: string[] = [];
+    const impl = (cmd: string, _args: string[], _opts: unknown, cb: ExecCb) => {
+      commands.push(cmd);
+      if (cmd === 'git') {
+        cb(null, remote, '');
+      } else if (!remote) {
+        cb(new Error('no git remotes found'), '', 'no git remotes found');
+      } else {
+        cb(
+          null,
+          JSON.stringify([
+            { url: 'https://github.com/a/b/pull/11', headRefName: 'task/my-branch' },
+          ]),
+          '',
+        );
+      }
+    };
+    vi.mocked(execFile).mockImplementation(impl as unknown as typeof execFile);
+
+    await expect(detectPrUrlForBranch('/repo/worktree', 'task/my-branch')).resolves.toBe(null);
+    expect(commands).toEqual(['git']);
+
+    remote = 'origin\n';
+    await expect(detectPrUrlForBranch('/repo/worktree', 'task/my-branch')).resolves.toBe(
+      'https://github.com/a/b/pull/11',
+    );
+    expect(commands).toEqual(['git', 'git', 'gh']);
   });
 
   it('finds an open PR for a branch', async () => {

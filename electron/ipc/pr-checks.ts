@@ -409,6 +409,12 @@ export async function detectPrUrlForBranch(
   branchName: string,
 ): Promise<string | null> {
   if (!(await isDirectory(worktreePath))) return null;
+  const { stdout: remotes } = await exec('git', ['remote'], {
+    cwd: worktreePath,
+    timeout: GH_TIMEOUT_MS,
+    maxBuffer: GH_MAX_BUFFER,
+  });
+  if (!remotes.trim()) return null;
   const { stdout } = await exec(
     'gh',
     [
