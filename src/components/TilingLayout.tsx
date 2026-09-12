@@ -5,6 +5,7 @@ import {
   createMemo,
   createEffect,
   createSignal,
+  on,
   onMount,
   onCleanup,
   ErrorBoundary,
@@ -65,15 +66,15 @@ export function TilingLayout() {
   // Transient per-drag width overrides. Written on mousemove, committed to
   // store.panelSizes on mouseup. Keeps autosave's snapshot stable mid-drag.
   const [dragPreview, setDragPreview] = createSignal<Record<string, number>>({});
+  let cancelDrag: (() => void) | undefined;
+  onCleanup(() => cancelDrag?.());
   let isFirstActiveTaskScroll = true;
   let wasNewTaskPanelOpen = store.showNewTaskPanel;
 
   function sizeFor(child: TileChild): number {
-    const preview = dragPreview()[child.id];
-    if (preview !== undefined) return preview;
-    const saved = getPanelUserSize(`tiling:${child.id}`);
-    if (saved !== undefined) return saved;
-    return child.initialSize ?? 200;
+    const size =
+      dragPreview()[child.id] ?? getPanelUserSize(`tiling:${child.id}`) ?? child.initialSize ?? 200;
+    return Math.min(child.maxSize ?? Infinity, Math.max(child.minSize ?? 0, size));
   }
 
   const syncTaskViewportVisibility = (
@@ -458,7 +459,16 @@ export function TilingLayout() {
     return panels;
   });
 
+  createEffect(
+    on(
+      () => [focusMode(), ...panelChildren().map((child) => child.id)],
+      () => cancelDrag?.(),
+    ),
+  );
+
   function handleDragStart(index: number, e: MouseEvent) {
+    if (e.button !== 0) return;
+    cancelDrag?.();
     const panels = panelChildren();
     const child = panels[index];
     if (!child || child.fixed) return;
@@ -475,15 +485,28 @@ export function TilingLayout() {
       latest = Math.min(maxSize, Math.max(minSize, startSize + (ev.clientX - startX)));
       setDragPreview({ [child.id]: latest });
     }
-    function onUp() {
-      setDragging(null);
-      setDragPreview({});
-      setPanelUserSize(key, latest);
+    function cleanup() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', cancel);
+      cancelDrag = undefined;
+      setDragging(null);
+    }
+    function cancel() {
+      cleanup();
+      setDragPreview({});
+    }
+    function onUp() {
+      cleanup();
+      batch(() => {
+        if (latest !== startSize) setPanelUserSize(key, latest);
+        setDragPreview({});
+      });
     }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', cancel);
+    cancelDrag = cancel;
   }
 
   return (

@@ -1,4 +1,13 @@
-import { batch, createEffect, createMemo, createSignal, For, onCleanup, type JSX } from 'solid-js';
+import {
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  type JSX,
+} from 'solid-js';
 import { getPanelUserSize, setPanelUserSize, deletePanelUserSize } from '../store/store';
 
 export interface PanelChild {
@@ -47,6 +56,14 @@ export function ResizablePanel(props: ResizablePanelProps) {
   const [dragOverride, setDragOverride] = createSignal<Record<string, number>>({});
   /** Stable per-ID refs so drag measurement survives dynamic children changes. */
   const wrapperRefs = new Map<string, HTMLDivElement>();
+  let cancelDrag: (() => void) | undefined;
+  onCleanup(() => cancelDrag?.());
+  createEffect(
+    on(
+      () => [props.direction, props.persistKey, ...props.children.map((child) => child.id)],
+      () => cancelDrag?.(),
+    ),
+  );
 
   const isHorizontal = () => props.direction === 'horizontal';
 
@@ -127,7 +144,7 @@ export function ResizablePanel(props: ResizablePanelProps) {
         };
       }
       return {
-        flex: `0 0 ${pinned}px`,
+        flex: `0 ${isHorizontal() ? 1 : 0} ${pinned}px`,
         [dim]: `${pinned}px`,
         [minDim]: `${min}px`,
         overflow: 'hidden',
@@ -143,7 +160,7 @@ export function ResizablePanel(props: ResizablePanelProps) {
     }
     if (child.defaultSize !== undefined) {
       return {
-        flex: `0 0 ${child.defaultSize}px`,
+        flex: `0 ${isHorizontal() ? 1 : 0} ${child.defaultSize}px`,
         [dim]: `${child.defaultSize}px`,
         [minDim]: `${min}px`,
         overflow: 'hidden',
@@ -169,6 +186,8 @@ export function ResizablePanel(props: ResizablePanelProps) {
   }
 
   function beginDrag(handleIdx: number, e: MouseEvent) {
+    if (e.button !== 0) return;
+    cancelDrag?.();
     e.preventDefault();
     const leftChild = props.children[handleIdx];
     const rightChild = props.children[handleIdx + 1];
@@ -249,10 +268,19 @@ export function ResizablePanel(props: ResizablePanelProps) {
       }
       setDragOverride(override);
     };
-    const onUp = () => {
+    const cleanup = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', cancel);
+      cancelDrag = undefined;
       setDraggingIdx(null);
+    };
+    const cancel = () => {
+      cleanup();
+      setDragOverride({});
+    };
+    const onUp = () => {
+      cleanup();
       if (latestLeft === startLeft && latestRight === startRight) {
         setDragOverride({});
         return;
@@ -280,6 +308,8 @@ export function ResizablePanel(props: ResizablePanelProps) {
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', cancel);
+    cancelDrag = cancel;
   }
 
   function unpin(handleIdx: number) {
@@ -316,7 +346,8 @@ export function ResizablePanel(props: ResizablePanelProps) {
         'flex-direction': isHorizontal() ? 'row' : 'column',
         width: '100%',
         height: '100%',
-        overflow: 'hidden',
+        // Keep both panes reachable when even their minimum widths cannot fit.
+        overflow: isHorizontal() ? 'auto' : 'hidden',
         ...props.style,
       }}
     >

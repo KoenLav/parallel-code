@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js';
 import { render } from 'solid-js/web';
 import { reconcile } from 'solid-js/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,13 +17,19 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function mount(children: PanelChild[], absorberIds: string[], sizes: number[]) {
+function mount(
+  children: PanelChild[],
+  absorberIds: string[],
+  sizes: number[],
+  direction: 'horizontal' | 'vertical' = 'vertical',
+) {
+  const [axis, setAxis] = createSignal(direction);
   const host = document.createElement('div');
   document.body.append(host);
   dispose = render(
     () => (
       <ResizablePanel
-        direction="vertical"
+        direction={axis()}
         persistKey="test"
         absorberIds={absorberIds}
         children={children}
@@ -33,17 +40,23 @@ function mount(children: PanelChild[], absorberIds: string[], sizes: number[]) {
   const cells = [...host.querySelectorAll<HTMLElement>('.rp-cell')];
   cells.forEach((cell, index) => {
     // happy-dom has no layout engine; supply the browser's measured sizes.
-    cell.getBoundingClientRect = () => new DOMRect(0, 0, 600, sizes[index]);
+    cell.getBoundingClientRect = () =>
+      new DOMRect(0, 0, direction === 'horizontal' ? sizes[index] : 600, sizes[index]);
   });
   return {
     cells,
+    setAxis,
     start(index: number) {
       host
         .querySelectorAll('.resize-handle')
-        [index].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientY: 200 }));
+        [
+          index
+        ].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 200, clientY: 200 }));
     },
     move(delta: number) {
-      window.dispatchEvent(new MouseEvent('mousemove', { clientY: 200 + delta }));
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { clientX: 200 + delta, clientY: 200 + delta }),
+      );
     },
     release() {
       window.dispatchEvent(new MouseEvent('mouseup'));
@@ -161,4 +174,44 @@ describe('ResizablePanel drag release', () => {
     expect(getPanelUserSize('test:terminal')).toBeUndefined();
     expect(panel.cells[1].style.flexGrow).toBe('1');
   });
+});
+
+describe('horizontal resizing', () => {
+  it('resizes from the visible width when a saved side panel has shrunk to fit', () => {
+    setPanelUserSize('test:shell', 700);
+    const panel = mount([terminal, shell], ['terminal'], [360, 534], 'horizontal');
+    expect(panel.cells[1].style.flexShrink).toBe('1');
+    panel.start(0);
+    panel.move(40);
+    expect(panel.cells[1].style.flexBasis).toBe('494px');
+    panel.release();
+    expect(getPanelUserSize('test:shell')).toBe(494);
+  });
+
+  it('allows default widths to shrink and scrolls when minimum widths cannot fit', () => {
+    const panel = mount(
+      [terminal, { ...shell, defaultSize: 400 }],
+      ['terminal'],
+      [360, 320],
+      'horizontal',
+    );
+    expect(panel.cells[1].style.flexShrink).toBe('1');
+    expect(panel.cells[0].parentElement?.style.overflow).toBe('auto');
+  });
+
+  it.each(['blur', 'unmount', 'direction'])(
+    'cancels a drag on %s without writing stale sizes',
+    (reason) => {
+      const panel = mount([terminal, shell], ['terminal'], [360, 400], 'horizontal');
+      panel.start(0);
+      panel.move(40);
+      if (reason === 'blur') window.dispatchEvent(new Event('blur'));
+      if (reason === 'unmount') dispose?.();
+      if (reason === 'direction') panel.setAxis('vertical');
+      panel.move(80);
+      panel.release();
+      expect(getPanelUserSize('test:shell')).toBeUndefined();
+      expect(document.querySelector('.resize-handle.dragging')).toBeNull();
+    },
+  );
 });

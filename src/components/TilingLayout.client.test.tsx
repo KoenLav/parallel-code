@@ -6,6 +6,7 @@ import { invoke } from '../lib/ipc';
 import { store, setStore } from '../store/core';
 import { setActiveTask, toggleNewTaskPanel } from '../store/navigation';
 import { createTask } from '../store/tasks';
+import { deletePanelUserSize, getPanelUserSize, setPanelUserSize } from '../store/ui';
 import { TilingLayout } from './TilingLayout';
 
 vi.mock('../lib/ipc', () => ({ invoke: vi.fn() }));
@@ -453,5 +454,47 @@ describe('inline document workspace', () => {
     expect(container.textContent).not.toContain('No tasks yet');
     const doc = container.querySelector<HTMLElement>('[data-task-id="doc-agent-docs"]');
     expect(doc?.parentElement?.style.visibility).toBe('visible');
+  });
+});
+
+describe('task column resizing', () => {
+  beforeEach(() => {
+    deletePanelUserSize(['tiling:terminal']);
+    setStore('terminals', 'terminal', { id: 'terminal', name: 'Terminal', agentId: 'shell' });
+    setStore('taskOrder', ['terminal']);
+    setStore('activeTaskId', 'terminal');
+  });
+
+  function startDrag() {
+    const handle = container.querySelector('.resize-handle-h');
+    assert(handle);
+    handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 200 }));
+  }
+
+  it('starts at the visible minimum width when the saved width is too small', () => {
+    setPanelUserSize('tiling:terminal', 100);
+    startDrag();
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 210 }));
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    expect(getPanelUserSize('tiling:terminal')).toBe(310);
+  });
+
+  it('does not pin a column on a click without movement', () => {
+    startDrag();
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    expect(getPanelUserSize('tiling:terminal')).toBeUndefined();
+  });
+
+  it.each(['blur', 'unmount', 'focus mode', 'remove panel'])('cancels a drag on %s', (reason) => {
+    startDrag();
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 240 }));
+    if (reason === 'blur') window.dispatchEvent(new Event('blur'));
+    if (reason === 'unmount') dispose?.();
+    if (reason === 'focus mode') setStore('focusMode', true);
+    if (reason === 'remove panel') setStore('taskOrder', []);
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 280 }));
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    expect(getPanelUserSize('tiling:terminal')).toBeUndefined();
+    expect(container.querySelector('.resize-handle.dragging')).toBeNull();
   });
 });
