@@ -3,6 +3,20 @@
 // top frame's isolated world, with a single purpose: return a user-picked element.
 const { ipcRenderer } = require('electron');
 let stopPicking = () => {};
+let activeHandlers = {};
+// Register before site scripts so their capture listeners cannot activate an
+// element before the picker intercepts the user's click. Inert while disarmed.
+for (const name of [
+  'pointermove',
+  'click',
+  'keydown',
+  'pointerdown',
+  'pointerup',
+  'mousedown',
+  'mouseup',
+]) {
+  window.addEventListener(name, (event) => activeHandlers[name]?.(event), true);
+}
 
 function selectorFor(element) {
   const parts = [];
@@ -14,10 +28,8 @@ function selectorFor(element) {
       break;
     }
     let part = node.localName;
-    if (node.parentElement) {
-      const siblings = [...node.parentElement.children].filter(
-        (e) => e.localName === node.localName,
-      );
+    if (node.parentNode?.children) {
+      const siblings = [...node.parentNode.children].filter((e) => e.localName === node.localName);
       if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(node) + 1})`;
     }
     parts.unshift(part);
@@ -74,7 +86,12 @@ ipcRenderer.on('browser:set-picking', (_event, enabled) => {
       const value = element.getAttribute(name);
       if (value) excerpt.setAttribute(name, value.slice(0, 256));
     }
-    const text = element.matches('input, textarea, select, [contenteditable]')
+    const editable = 'input, textarea, select, [contenteditable]';
+    const containsDraft =
+      element.closest(editable) ||
+      element.querySelector(editable) ||
+      (element instanceof HTMLElement && element.isContentEditable);
+    const text = containsDraft
       ? ''
       : (element instanceof HTMLElement ? element.innerText : element.textContent || '').slice(
           0,
@@ -91,18 +108,17 @@ ipcRenderer.on('browser:set-picking', (_event, enabled) => {
     stopPicking();
     ipcRenderer.send('browser:pick-result', null);
   };
-  const events = [
-    ['pointermove', move],
-    ['click', click],
-    ['keydown', key],
-    ['pointerdown', suppress],
-    ['pointerup', suppress],
-    ['mousedown', suppress],
-    ['mouseup', suppress],
-  ];
-  for (const [name, handler] of events) window.addEventListener(name, handler, true);
+  activeHandlers = {
+    pointermove: move,
+    click,
+    keydown: key,
+    pointerdown: suppress,
+    pointerup: suppress,
+    mousedown: suppress,
+    mouseup: suppress,
+  };
   stopPicking = () => {
-    for (const [name, handler] of events) window.removeEventListener(name, handler, true);
+    activeHandlers = {};
     overlay.remove();
     stopPicking = () => {};
   };

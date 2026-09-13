@@ -118,6 +118,20 @@ describe('task browser IPC', () => {
     );
   });
 
+  it('forwards guest focus without moving keyboard focus to the app', () => {
+    const { command, owner } = fixture();
+    command({ id: 'preview-1', action: 'create' });
+    const wc = (mocks.view.mock.results[0].value as ReturnType<typeof guest>).webContents;
+    wc.emit('focus');
+    expect(owner.send).toHaveBeenLastCalledWith(
+      IPC.BrowserState,
+      expect.objectContaining({ id: 'preview-1', focused: true }),
+    );
+    expect(owner.focus).not.toHaveBeenCalled();
+    wc.emit('did-stop-loading');
+    expect(owner.send.mock.lastCall?.[1].focused).toBeUndefined();
+  });
+
   it('only forwards a picker result from the armed guest main frame', () => {
     const { command, owner, bounds } = fixture();
     command({ id: 'preview-1', action: 'create' });

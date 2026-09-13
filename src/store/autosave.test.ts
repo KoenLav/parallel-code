@@ -80,7 +80,7 @@ describe('autosave snapshot includes new-task-default fields', () => {
     }
   });
 
-  it('an unsent prompt draft changes the snapshot', () => {
+  it.each(['promptDraft', 'browserUrl'] as const)('%s changes the snapshot', (field) => {
     const taskId = 'autosave-draft-task';
     const task: Task = {
       id: taskId,
@@ -98,7 +98,7 @@ describe('autosave snapshot includes new-task-default fields', () => {
     setStore('taskOrder', (order) => [...order, taskId]);
     try {
       const before = persistedSnapshot();
-      setStore('tasks', taskId, 'promptDraft', 'half-written thought');
+      setStore('tasks', taskId, field, 'changed persisted value');
       expect(persistedSnapshot()).not.toBe(before);
     } finally {
       setStore('taskOrder', (order) => order.filter((id) => id !== taskId));

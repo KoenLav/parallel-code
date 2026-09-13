@@ -7,6 +7,7 @@ import { topDialog } from '../lib/dialog-stack';
 import { theme } from '../lib/theme';
 import {
   appendBrowserReference,
+  markBrowserFocused,
   setTaskBrowserUrl,
   setActiveTask,
   setTaskFocusedPanel,
@@ -32,7 +33,11 @@ function viewportBounds(el: HTMLElement): BrowserBounds | null {
     r.bottom > window.innerHeight
   )
     return null;
-  if (document.querySelector('[role="dialog"], [role="menu"]')) return null;
+  if (
+    document.body.classList.contains('dragging-task') ||
+    document.querySelector('[role="dialog"], [role="menu"]')
+  )
+    return null;
   const points = [
     [r.left + 1, r.top + 1],
     [r.right - 1, r.top + 1],
@@ -91,6 +96,7 @@ export function TaskBrowserPanel(props: TaskBrowserPanelProps) {
         setTaskBrowserUrl(taskId, next.url);
       }
       setState(next);
+      if (next.focused) markBrowserFocused(taskId);
       if (next.reference) {
         appendBrowserReference(taskId, next.reference);
         setActiveTask(taskId);

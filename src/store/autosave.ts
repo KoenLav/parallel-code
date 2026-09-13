@@ -61,6 +61,7 @@ export function persistedSnapshot(): string {
             {
               notes: t.notes,
               promptDraft: t.promptDraft,
+              browserUrl: t.browserUrl,
               lastPrompt: t.lastPrompt,
               name: t.name,
               gitIsolation: t.gitIsolation,

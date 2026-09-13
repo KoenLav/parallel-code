@@ -57,6 +57,47 @@ describe('isolated element picker', () => {
     pick('input');
     expect(JSON.stringify(send.mock.calls)).not.toContain('secret');
   });
+  it('intercepts capture listeners registered by the page before arming', () => {
+    const { arm, pick, window } = setup();
+    const activate = vi.fn();
+    window.addEventListener('click', activate, true);
+    arm();
+    pick('#save');
+    expect(activate).not.toHaveBeenCalled();
+    pick('#save');
+    expect(activate).toHaveBeenCalledTimes(1);
+  });
+  it.each(['#editor span', '#container'])('omits editable text when selecting %s', (selector) => {
+    const { arm, pick, send, window } = setup();
+    window.document.body.innerHTML =
+      '<div id="container"><div id="editor" contenteditable="true"><span>private draft</span></div></div>';
+    arm();
+    pick(selector);
+    expect(send).toHaveBeenCalledWith('browser:pick-result', expect.objectContaining({ text: '' }));
+    expect(JSON.stringify(send.mock.calls)).not.toContain('private draft');
+  });
+  it('distinguishes same-tag siblings directly inside an open shadow root', () => {
+    const { arm, send, window } = setup();
+    const host = window.document.createElement('div');
+    host.id = 'host';
+    window.document.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<button>First</button><button>Second</button>';
+    arm();
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    });
+    Object.defineProperty(event, 'isTrusted', { value: true });
+    shadow.children[1].dispatchEvent(event);
+    expect(send).toHaveBeenCalledWith(
+      'browser:pick-result',
+      expect.objectContaining({
+        selector: '#host >>> button:nth-of-type(2)',
+      }),
+    );
+  });
   it('cancels on Escape without producing a reference', () => {
     const { arm, send, window } = setup();
     arm();

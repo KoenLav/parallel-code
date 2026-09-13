@@ -13,10 +13,14 @@ import {
   openCanvasDocument,
   openCanvasBrowser,
   appendBrowserReference,
+  setTaskBrowserUrl,
+  markBrowserFocused,
   openTaskCanvas,
   startCanvasAutoOpen,
 } from './canvas';
 import { deletePanelUserSize, getPanelUserSize, setPanelUserSize } from './ui';
+import { saveState } from './persistence';
+import { registerFocusFn, unregisterFocusFn } from './focused-panel';
 import type { Agent, Task } from './types';
 
 vi.mock('../lib/ipc', () => ({ invoke: vi.fn() }));
@@ -311,6 +315,41 @@ describe('browser canvas', () => {
       { kind: 'browser', path: 'preview' },
     ]);
     expect(store.tasks['task-1'].canvasActiveTab).toBe('browser:preview');
+  });
+  it('updates URLs without writing the workspace for every history event', () => {
+    vi.mocked(saveState).mockClear();
+    setTaskBrowserUrl('task-1', 'http://localhost:3000/#one');
+    setTaskBrowserUrl('task-1', 'http://localhost:3000/#two');
+    expect(store.tasks['task-1'].browserUrl).toBe('http://localhost:3000/#two');
+    expect(saveState).not.toHaveBeenCalled();
+  });
+  it('activates the browser task and canvas without invoking DOM focus', () => {
+    const focus = vi.fn();
+    registerFocusFn('task-1:canvas', focus);
+    const previous = {
+      activeTaskId: store.activeTaskId,
+      activeAgentId: store.activeAgentId,
+      sidebarFocused: store.sidebarFocused,
+      placeholderFocused: store.placeholderFocused,
+      focusedPanel: store.focusedPanel['task-1'],
+    };
+    try {
+      setStore('activeTaskId', 'another-task');
+      setStore('sidebarFocused', true);
+      markBrowserFocused('task-1');
+      expect(store.activeTaskId).toBe('task-1');
+      expect(store.focusedPanel['task-1']).toBe('canvas');
+      expect(store.sidebarFocused).toBe(false);
+      expect(store.placeholderFocused).toBe(false);
+      expect(focus).not.toHaveBeenCalled();
+    } finally {
+      unregisterFocusFn('task-1:canvas');
+      setStore('activeTaskId', previous.activeTaskId);
+      setStore('activeAgentId', previous.activeAgentId);
+      setStore('sidebarFocused', previous.sidebarFocused);
+      setStore('placeholderFocused', previous.placeholderFocused);
+      setStore('focusedPanel', 'task-1', previous.focusedPanel);
+    }
   });
   it('appends references to the unsent draft and makes the prompt visible', () => {
     setStore('tasks', 'task-1', 'promptDraft', 'Make this smaller');

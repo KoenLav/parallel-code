@@ -34,6 +34,7 @@ export {
   openCanvasBrowser,
   setTaskBrowserUrl,
   appendBrowserReference,
+  markBrowserFocused,
   activateCanvasTab,
   closeCanvasTab,
   openTaskCanvas,

@@ -10,6 +10,7 @@ import {
 } from '../lib/layout-sizes';
 import { store, setStore } from './core';
 import { setPlanContent } from './tasks';
+import { setActiveTask } from './navigation';
 import { saveState } from './persistence';
 import { getPanelUserSize, setPanelUserSize } from './ui';
 import type { CanvasTab, Task } from './types';
@@ -169,7 +170,19 @@ export function openCanvasBrowser(taskId: string): void {
 export function setTaskBrowserUrl(taskId: string, url: string): void {
   if (!store.tasks[taskId] || store.tasks[taskId].browserUrl === url) return;
   setStore('tasks', taskId, 'browserUrl', url);
-  void saveState();
+  // History updates can be frequent; the existing autosave debounce persists them.
+}
+
+/** Native guest clicks do not bubble through the task DOM. Record focus without
+ * invoking a renderer focus callback that would steal it back from the page. */
+export function markBrowserFocused(taskId: string): void {
+  if (!store.tasks[taskId]) return;
+  batch(() => {
+    setActiveTask(taskId);
+    setStore('focusedPanel', taskId, 'canvas');
+    setStore('sidebarFocused', false);
+    setStore('placeholderFocused', false);
+  });
 }
 
 export function appendBrowserReference(taskId: string, reference: string): void {

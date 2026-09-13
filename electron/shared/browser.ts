@@ -19,6 +19,8 @@ export interface BrowserState {
   picking: boolean;
   error: string | null;
   reference?: string;
+  /** Transient event: the native guest acquired keyboard focus. */
+  focused?: boolean;
 }
 export type BrowserAction =
   | 'create'

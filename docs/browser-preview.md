@@ -14,16 +14,16 @@ Click **Pick element**, hover to highlight an element, and click to add its URL,
 
 ## Implementation
 
-`TaskBrowserPanel` draws the controls and reports the page rectangle over IPC. The main process owns the `WebContentsView`; URL validation and sender checks happen there. Bounds are converted from renderer CSS pixels using the app's zoom factor. The app and guest use separate preloads: `browser-preload.cjs` exposes no API to the page and only returns a user-picked element while the main process has armed the picker. Captured excerpts are bounded and omit form values and arbitrary attributes.
+`TaskBrowserPanel` draws the controls and reports the page rectangle over IPC. The main process owns the `WebContentsView`; URL validation and sender checks happen there. Bounds are converted from renderer CSS pixels using the app's zoom factor. The app and guest use separate preloads: `browser-preload.cjs` exposes no API to the page and only returns a user-picked element while the main process has armed the picker. Captured excerpts are bounded and omit form values and arbitrary attributes. Text is also omitted when the selection is inside or contains an editable region or form control. Native guest focus activates its task without moving keyboard focus back to the app. URL history changes use the existing debounced autosave.
 
 Electron recommends alternatives to `<webview>`, and an iframe would impose embedding and cross-origin DOM restrictions. `WebContentsView` provides the needed control, at the cost of explicit placement, visibility, and cleanup. See [Electron's embedding guide](https://www.electronjs.org/docs/latest/tutorial/web-embeds) and [native view resource management](https://www.electronjs.org/docs/latest/api/base-window#resource-management).
 
 ## Verification
 
-Focused tests cover URL and payload validation, IPC ownership, picker arming and cancellation, redirects, view disposal, draft preservation, and persistence:
+Focused tests cover URL and payload validation, IPC ownership, picker arming and cancellation, redirects, view disposal, draft preservation, native focus, drag visibility, shadow-root siblings, editable-text privacy, and persistence:
 
 ```sh
-npx vitest run electron/shared/browser.test.ts electron/ipc/browser.test.ts electron/browser-preload.test.ts electron/preload-allowlist.test.ts src/lib/canvas-tabs.test.ts src/store/persistence.test.ts
+npx vitest run electron/shared/browser.test.ts electron/ipc/browser.test.ts electron/browser-preload.test.ts electron/preload-allowlist.test.ts src/lib/canvas-tabs.test.ts src/store/persistence.test.ts src/store/autosave.test.ts
 npx vitest run --config vitest.client.config.ts src/components/TaskBrowserPanel.client.test.tsx src/components/TaskCanvasPanel.client.test.tsx src/store/canvas.client.test.tsx
 ```
 

@@ -2,12 +2,13 @@ import { render } from 'solid-js/web';
 import { afterEach, expect, it, vi } from 'vitest';
 import { IPC } from '../../electron/ipc/channels';
 import { invoke } from '../lib/ipc';
-import { appendBrowserReference } from '../store/store';
+import { appendBrowserReference, markBrowserFocused, setTaskFocusedPanel } from '../store/store';
 import { TaskBrowserPanel } from './TaskBrowserPanel';
 
 vi.mock('../lib/ipc', () => ({ invoke: vi.fn(async () => undefined) }));
 vi.mock('../store/store', () => ({
   appendBrowserReference: vi.fn(),
+  markBrowserFocused: vi.fn(),
   setTaskBrowserUrl: vi.fn(),
   setActiveTask: vi.fn(),
   setTaskFocusedPanel: vi.fn(),
@@ -16,6 +17,9 @@ const disposers: Array<() => void> = [];
 afterEach(() => {
   disposers.splice(0).forEach((dispose) => dispose());
   document.body.replaceChildren();
+  document.body.classList.remove('dragging-task');
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -86,4 +90,41 @@ it('shows navigation failures and closes the native view on unmount', async () =
     IPC.BrowserCommand,
     expect.objectContaining({ action: 'close' }),
   );
+});
+
+it('routes native focus only to its task without stealing keyboard focus', async () => {
+  const { listeners } = mount();
+  await Promise.resolve();
+  const id = vi.mocked(invoke).mock.calls.find(([, args]) => args?.action === 'create')?.[1]?.id;
+  listeners.get(IPC.BrowserState)?.({ id: 'other', focused: true });
+  expect(markBrowserFocused).not.toHaveBeenCalled();
+  listeners.get(IPC.BrowserState)?.({ id, focused: true });
+  expect(markBrowserFocused).toHaveBeenCalledWith('task-1');
+  expect(setTaskFocusedPanel).not.toHaveBeenCalled();
+});
+
+it('hides the native view throughout task, terminal, and sidebar drags', async () => {
+  let tick: FrameRequestCallback = () => undefined;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    tick = callback;
+    return 1;
+  });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const { container, listeners } = mount();
+  await Promise.resolve();
+  await Promise.resolve();
+  const viewport = container.querySelector('.task-browser-viewport');
+  if (!viewport) throw new Error('Missing viewport');
+  vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 10, 200, 200));
+  vi.spyOn(document, 'elementFromPoint').mockReturnValue(viewport);
+  const id = vi.mocked(invoke).mock.calls.find(([, args]) => args?.action === 'create')?.[1]?.id;
+  listeners.get(IPC.BrowserState)?.({ id, url: 'http://localhost:3000/' });
+  const bounds = { x: 10, y: 10, width: 200, height: 200 };
+  expect(invoke).toHaveBeenLastCalledWith(IPC.BrowserBounds, { id, bounds });
+  document.body.classList.add('dragging-task');
+  tick(0);
+  expect(invoke).toHaveBeenLastCalledWith(IPC.BrowserBounds, { id, bounds: null });
+  document.body.classList.remove('dragging-task');
+  tick(1);
+  expect(invoke).toHaveBeenLastCalledWith(IPC.BrowserBounds, { id, bounds });
 });

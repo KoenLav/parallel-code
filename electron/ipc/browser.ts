@@ -85,13 +85,14 @@ export function registerBrowserHandlers(win: BrowserWindow): void {
       previews.set(args.id, entry);
       view.setVisible(false);
       win.contentView.addChildView(view);
-      const publish = (reference?: string): void => {
+      const publish = (event: Pick<BrowserState, 'reference' | 'focused'> = {}): void => {
         if (previews.get(args.id) !== entry || owner.isDestroyed() || wc.isDestroyed()) return;
         state.loading = wc.isLoading();
         state.canGoBack = wc.navigationHistory.canGoBack();
         state.canGoForward = wc.navigationHistory.canGoForward();
-        owner.send(IPC.BrowserState, { ...state, reference });
+        owner.send(IPC.BrowserState, { ...state, ...event });
       };
+      wc.on('focus', () => publish({ focused: true }));
       wc.setWindowOpenHandler(() => ({ action: 'deny' }));
       wc.on('will-navigate', (e, url) => {
         try {
@@ -153,7 +154,7 @@ export function registerBrowserHandlers(win: BrowserWindow): void {
         try {
           const element = parsePickedElement(payload);
           owner.focus();
-          publish(formatElementReference(wc.getURL(), element));
+          publish({ reference: formatElementReference(wc.getURL(), element) });
         } catch {
           publish();
         }
