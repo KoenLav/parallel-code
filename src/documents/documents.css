@@ -525,6 +525,50 @@
   display: none;
 }
 
+.docws-editor-pane {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.docws-editor-pane.is-full-width {
+  max-width: none;
+}
+
+.docws-editor-pane.is-hidden {
+  display: none;
+}
+
+.docws-markdown-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.docws-editor-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.docws-editor-pane .cm-editor {
+  font-size: 16px;
+}
+
+.docws-tab[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--bg-input);
+}
+
 /* White canvas is what a browser gives a page by default; a page that sets its
    own background paints over it. */
 .docws-html-viewport {

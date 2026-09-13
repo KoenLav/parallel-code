@@ -20,16 +20,23 @@ export interface CanvasEditorApi {
   reload: (source: string) => void;
 }
 
+export interface CanvasDraft {
+  source: string;
+  markdown: string;
+}
+
 export interface TaskCanvasEditorProps {
   documentPath: string;
   /** What the editor shows. A new value replaces the document wholesale, so
    *  the parent only changes it when there are no unsaved edits. */
   source: string;
+  initialDraft?: CanvasDraft;
   onDirty: (dirty: boolean) => void;
   /** Applies the write to disk; resolves true once the file holds it. */
   onSave: (write: CanvasWrite) => Promise<boolean>;
   onSelect: (selection: CanvasSelection | null) => void;
   ref: (api: CanvasEditorApi) => void;
+  onDraft?: (draft: CanvasDraft | null) => void;
 }
 
 /** The live Markdown surface of the canvas, guarded against stale disk writes. */
@@ -62,6 +69,7 @@ export function TaskCanvasEditor(props: TaskCanvasEditorProps) {
 
   function onChange(matchesSaved: boolean): void {
     setDirty(!matchesSaved);
+    props.onDraft?.(draft());
     if (dirty) scheduleSave();
     else clearTimeout(idle);
   }
@@ -86,46 +94,62 @@ export function TaskCanvasEditor(props: TaskCanvasEditorProps) {
     const saved =
       source.slice(0, write.startOffset) + write.replacement + source.slice(write.endOffset);
     pendingSource = saved;
+    props.onDraft?.(draft());
     const operation = (async (): Promise<boolean> => {
       try {
         const ok = await props.onSave({ ...write, expectedContent: source });
         if (!ok) return false;
+        if (editor !== activeEditor) return true;
         loaded = saved;
         setDirty(!activeEditor.markSaved(whole));
         if (dirty) scheduleSave();
         return true;
       } finally {
         pendingSource = undefined;
+        if (editor === activeEditor) props.onDraft?.(draft());
       }
     })();
     inFlight = operation;
+    let ok: boolean;
     try {
-      return await operation;
+      ok = await operation;
     } finally {
       if (inFlight === operation) inFlight = undefined;
     }
+    // Navigation and agent actions must wait for text typed during the write too.
+    return ok && dirty && editor ? save() : ok;
   }
 
   function reload(source: string): void {
     if (!editor) return;
     editor.load(source);
     rebase(source);
+    props.onDraft?.(null);
     props.onSelect(null);
+  }
+
+  function draft(): CanvasDraft | null {
+    // An undo may match the old baseline while an outstanding write is about to replace it.
+    return (dirty || pendingSource !== undefined) && editor
+      ? { source: loaded, markdown: editor.markdown() }
+      : null;
   }
 
   onMount(() => {
     if (!host) return;
     const root = host;
-    const initial = props.source;
+    const initial = props.initialDraft?.source ?? props.source;
     editor = createCanvasEditor({
       root,
-      defaultValue: initial,
+      defaultValue: props.initialDraft?.markdown ?? initial,
       placeholder: 'Write Markdown…',
       ariaLabel: `Editor for ${props.documentPath}`,
       onChange,
       onSelection: (selection) => props.onSelect(selection),
     });
     rebase(initial);
+    setDirty(!editor.markSaved(initial));
+    if (dirty) scheduleSave();
     props.ref({ save, reload });
     onCleanup(() => {
       clearTimeout(idle);

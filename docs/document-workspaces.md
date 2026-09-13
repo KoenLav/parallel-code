@@ -141,9 +141,23 @@ the document.
    them and return to the committed version. Next to the editor button, a folder button
    opens the project in the file manager.
 
+9. **Edit Markdown directly.** For `.md` and `.markdown` files, choose **Edit** in the
+   document toolbar. The live Markdown editor saves after a 1.5-second pause;
+   **Save** or Cmd/Ctrl+S saves immediately. Undo and redo remain available across
+   saves and switching between **Edit** and **Preview**. Preview keeps the rendered
+   diagrams, annotations and passage actions. Switching to Preview, History or a
+   proposal comparison saves first; a failed save keeps the editor open.
+   Unsaved drafts are backed up in local app storage and restored when you reopen
+   their document, including after switching files or closing the workspace. Reopening
+   waits for an outstanding save so subsequent typing and undo remain recoverable. If an
+   agent or external editor changes the file while a draft is unsaved, the draft is
+   preserved and saving refuses to overwrite the changed file. Copy the draft before
+   choosing **Reload and discard my draft**. HTML retains its existing block editor
+   and Inline/Page views.
+
 ### How it works
 
-- **Editing happens in the block editor, your editor, or the interactive session.** The app
+- **Editing happens in the Markdown editor, block editor, your editor, or interactive session.** The app
   watches the open file and re-renders; an external change drops any active selection. The Agent
   tab is a task's AI terminal and prompt box (`TaskAITerminal`, `PromptInput`) over a hidden
   task per project, id `doc-agent-<project>`, kept out of the coding task list but saved

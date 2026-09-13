@@ -50,6 +50,8 @@ import { RunComposer } from './RunComposer';
 import { RightPanel } from './RightPanel';
 import { CandidateOutputDialog } from './CandidateOutputDialog';
 import { BlockEditor, type BlockEditTarget } from './BlockEditor';
+import { MarkdownEditor } from './MarkdownEditor';
+import { afterSavingMarkdown, readMarkdownDraft } from './markdown-editing';
 import { ResizablePanel, type PanelChild } from '../components/ResizablePanel';
 import { createRenderedBlocks } from './use-blocks';
 import { DocumentIcon } from './DocumentIcon';
@@ -256,8 +258,30 @@ function DocumentPane(props: { project: Project }) {
   const isHtml = createMemo(() => isHtmlDocument(documentStore.snapshot?.content));
   const [htmlView, setHtmlView] = createSignal<'inline' | 'page'>('inline');
   const showsPreview = () => isHtml() && htmlView() === 'page';
+  const canEditMarkdown = () => /\.(md|markdown)$/i.test(documentPath()) && !isHtml();
+  const [markdownView, setMarkdownView] = createSignal<'preview' | 'edit'>('preview');
+  const [editorOpened, setEditorOpened] = createSignal(false);
+  const editingMarkdown = () => canEditMarkdown() && markdownView() === 'edit';
+  // File identity, rather than the changing snapshot, owns the editor and its undo history.
+  const editorKey = createMemo(() => JSON.stringify([props.project.path, documentPath()]));
+  createEffect(
+    on(editorKey, () => {
+      const hasDraft = !!readMarkdownDraft(props.project.path, documentPath());
+      setEditorOpened(hasDraft);
+      setMarkdownView(hasDraft ? 'edit' : 'preview');
+    }),
+  );
+
+  function startEditing() {
+    setDocumentSelection(null);
+    setDocumentComposerDraft(null);
+    setEditorOpened(true);
+    setMarkdownView('edit');
+    requestAnimationFrame(() => mainRef?.querySelector<HTMLElement>('.cm-content')?.focus());
+  }
 
   const toolbarLabel = () => {
+    if (editingMarkdown()) return 'Edit Markdown directly · autosaves when you pause';
     if (showsPreview()) return 'Sandboxed render of the page — switch to Inline to scope a task';
     const s = selection();
     if (!s || s.wholeDocument)
@@ -270,6 +294,26 @@ function DocumentPane(props: { project: Project }) {
   return (
     <div class="docws-main docws-doc-main" ref={mainRef}>
       <div class="docws-toolbar">
+        <Show when={canEditMarkdown() && documentStore.snapshot && !documentStore.snapshot.missing}>
+          <div class="docws-tabs" role="group" aria-label="Markdown view">
+            <button
+              type="button"
+              class="docws-tab"
+              aria-pressed={markdownView() === 'preview'}
+              onClick={() => afterSavingMarkdown(() => setMarkdownView('preview'))}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              class="docws-tab"
+              aria-pressed={markdownView() === 'edit'}
+              onClick={startEditing}
+            >
+              Edit
+            </button>
+          </div>
+        </Show>
         <Show when={isHtml()}>
           <span class="docws-tabs">
             <button
@@ -292,7 +336,7 @@ function DocumentPane(props: { project: Project }) {
             </button>
           </span>
         </Show>
-        <Show when={!showsPreview() && !composerOpen()}>
+        <Show when={!showsPreview() && !composerOpen() && !editingMarkdown()}>
           <button
             type="button"
             ref={reviseRef}
@@ -305,7 +349,7 @@ function DocumentPane(props: { project: Project }) {
           </button>
         </Show>
         <span class="docws-toolbar-label">{toolbarLabel()}</span>
-        <Show when={editableBlock() && !showsPreview()}>
+        <Show when={editableBlock() && !showsPreview() && !editingMarkdown()}>
           <button
             type="button"
             class="docws-btn docws-btn-sm"
@@ -373,7 +417,7 @@ function DocumentPane(props: { project: Project }) {
             Full width
           </button>
         </Show>
-        <Show when={resolvedCount() > 0}>
+        <Show when={resolvedCount() > 0 && !editingMarkdown()}>
           <label class="docws-toggle" title="Resolved bubbles collapse to one line">
             <input
               type="checkbox"
@@ -386,6 +430,28 @@ function DocumentPane(props: { project: Project }) {
       </div>
       <Show when={documentStore.snapshot?.missing}>
         <div class="docws-older-banner">The document file is missing from the checkout.</div>
+      </Show>
+      <Show when={canEditMarkdown() && editorOpened() && documentStore.snapshot}>
+        <Show keyed when={editorKey()}>
+          {(_key) => (
+            <div
+              class="docws-editor-pane"
+              classList={{
+                'is-hidden': !editingMarkdown(),
+                'is-full-width': store.documentFullWidth,
+              }}
+              style={{ zoom: zoom() }}
+            >
+              <MarkdownEditor
+                projectRoot={props.project.path}
+                documentPath={documentPath()}
+                source={documentStore.snapshot?.content ?? ''}
+                missing={documentStore.snapshot?.missing ?? false}
+                onSaved={refreshDocumentSnapshot}
+              />
+            </div>
+          )}
+        </Show>
       </Show>
       <Show when={showsPreview()}>
         {/* Fully sandboxed: the page renders with its own CSS but gets no
@@ -409,7 +475,7 @@ function DocumentPane(props: { project: Project }) {
       <div
         class="docws-scroll"
         ref={scrollRef}
-        classList={{ 'is-hidden': showsPreview() }}
+        classList={{ 'is-hidden': showsPreview() || editingMarkdown() }}
         onMouseUp={(e) => {
           if (releasesSelection(e.target)) setDocumentSelection(null);
         }}
@@ -482,7 +548,14 @@ function DocumentPane(props: { project: Project }) {
           the passage it is about stays where it was picked: right above the
           popover. It is only up while it has work to do: a task on the whole
           document rests at the foot of the column. */}
-      <Show when={documentStore.snapshot && !documentStore.snapshot.missing && composerOpen()}>
+      <Show
+        when={
+          documentStore.snapshot &&
+          !documentStore.snapshot.missing &&
+          composerOpen() &&
+          !editingMarkdown()
+        }
+      >
         <div
           class="docws-composer-layer"
           ref={(el) => {

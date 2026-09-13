@@ -30,6 +30,7 @@ import { store, setStore } from '../store/core';
 import { getProject, updateProject } from '../store/projects';
 import { showNotification } from '../store/notification';
 import type { DocumentModelChoice, Project } from '../store/types';
+import { afterSavingMarkdown, flushMarkdownEditor } from './markdown-editing';
 
 export type DocumentView = 'document' | 'history';
 
@@ -303,7 +304,7 @@ export function setDocumentComposerDraft(draft: ComposerDraft | null): void {
 }
 
 export function setDocumentView(view: DocumentView): void {
-  setDocStore('view', view);
+  afterSavingMarkdown(() => setDocStore('view', view));
 }
 
 export function setDocumentSelection(selection: DocumentSelection | null): void {
@@ -312,7 +313,9 @@ export function setDocumentSelection(selection: DocumentSelection | null): void 
 
 /** Opens the compare view, a modal over whatever tab is up. */
 export function openDocumentCompare(runId: string, candidateId?: string): void {
-  setDocStore({ compareRunId: runId, compareCandidateId: candidateId ?? null });
+  afterSavingMarkdown(() =>
+    setDocStore({ compareRunId: runId, compareCandidateId: candidateId ?? null }),
+  );
 }
 
 export function closeDocumentCompare(): void {
@@ -460,6 +463,12 @@ export async function dispatchDocumentRun(
   selection: DocumentSelection,
 ): Promise<DocumentRunRecord | null> {
   const { project, documentPath } = requireProject();
+  if (
+    !(await flushMarkdownEditor()) ||
+    !stillOpen(project.id) ||
+    docStore.documentPath !== documentPath
+  )
+    return null;
   const candidates = buildCandidateSpecs(project, picks, store.agentEnvFiles);
   if (candidates.length === 0) throw new Error('Pick at least one agent with a headless mode.');
   setDocStore('dispatching', true);
@@ -572,6 +581,7 @@ export async function acceptDocumentCandidate(
   partial?: { content: string; accepted: number; total: number },
 ): Promise<void> {
   const { project } = requireProject();
+  if (!(await flushMarkdownEditor()) || !stillOpen(project.id)) return;
   try {
     await invoke<{ sha: string }>(IPC.AcceptDocumentCandidate, {
       projectRoot: project.path,
@@ -694,6 +704,7 @@ export async function setDocumentCandidateNote(
 
 export async function revertDocumentCommit(sha: string): Promise<boolean> {
   const { project } = requireProject();
+  if (!(await flushMarkdownEditor()) || !stillOpen(project.id)) return false;
   try {
     await invoke(IPC.RevertDocumentCommit, { projectRoot: project.path, sha });
     showNotification('Reverted');
@@ -708,6 +719,7 @@ export async function revertDocumentCommit(sha: string): Promise<boolean> {
 /** Drops the uncommitted edits to tracked files; the document goes back to HEAD. */
 export async function discardDocumentEdits(): Promise<boolean> {
   const { project } = requireProject();
+  if (!(await flushMarkdownEditor()) || !stillOpen(project.id)) return false;
   try {
     await invoke(IPC.DiscardDocumentEdits, { projectRoot: project.path });
     showNotification('Uncommitted edits discarded');
