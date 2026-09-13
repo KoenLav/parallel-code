@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChangeTourPrompts, parseChangeTour, getChangeTourSelection } from './change-tour';
+import { buildChangeTourPrompts, parseChangeTour } from './change-tour';
 import { parseUnifiedDiff } from './unified-diff-parser';
 import { CHANGE_TOUR_PROMPT_LIMIT } from '../../electron/shared/change-tour-limits';
 
@@ -12,19 +12,6 @@ const stop = {
 };
 
 describe('change tours', () => {
-  it.each(['main', 'master', 'develop'])('defaults %s to uncommitted changes', (branch) => {
-    expect(getChangeTourSelection(branch, 'auto', 'abc123')).toBe('uncommitted');
-    expect(getChangeTourSelection(branch, 'selection', null)).toBeNull();
-    expect(getChangeTourSelection(branch, 'selection', 'abc123')).toBe('abc123');
-  });
-  it.each(['feature/tour', 'release/main', 'develop-fix', undefined])(
-    'defaults %s to the whole branch independently of browsing',
-    (branch) => {
-      expect(getChangeTourSelection(branch, 'auto', 'abc123')).toBeNull();
-      expect(getChangeTourSelection(branch, 'auto', 'uncommitted')).toBeNull();
-      expect(getChangeTourSelection(branch, 'selection', 'uncommitted')).toBe('uncommitted');
-    },
-  );
   it.each([
     ['Here is the tour:\n', '\nThis tour covers the supplied change.'],
     ['', '\nNote: tests were not executed.'],

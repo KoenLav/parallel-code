@@ -4,13 +4,7 @@ import { IPC } from '../../electron/ipc/channels';
 import { CHANGE_TOUR_TIMEOUT_MS } from '../../electron/shared/change-tour-limits';
 import { store } from '../store/store';
 import { errMessage, info as logInfo, warn as logWarn } from './log';
-import {
-  buildChangeTourPrompts,
-  parseChangeTour,
-  getChangeTourSelection,
-  type ChangeTourScope,
-  type TourStop,
-} from './change-tour';
+import { buildChangeTourPrompts, parseChangeTour, type TourStop } from './change-tour';
 import { parseUnifiedDiff, type FileDiff } from './unified-diff-parser';
 import { loadTaskDiff, type TaskDiffInput } from './load-task-diff';
 
@@ -54,9 +48,7 @@ export function createChangeTour() {
     setStep(index);
   }
 
-  async function generateForTask(
-    input: TaskDiffInput & { taskName: string; scope?: ChangeTourScope },
-  ) {
+  async function generateForTask(input: TaskDiffInput & { taskName: string }) {
     reset();
     setLoading(true);
     setProgress('Reading changes…');
@@ -70,13 +62,6 @@ export function createChangeTour() {
     try {
       const { rawDiff, cwd } = await loadTaskDiff({
         ...input,
-        // Direct-mode tasks store their working branch as baseBranch. Comparing
-        // that branch to itself would drop all committed work from an automatic tour.
-        baseBranch:
-          input.scope !== 'selection' && input.baseBranch === input.branchName
-            ? undefined
-            : input.baseBranch,
-        selectedCommit: getChangeTourSelection(input.branchName, input.scope, input.selectedCommit),
       });
       if (!active) return;
       generate({

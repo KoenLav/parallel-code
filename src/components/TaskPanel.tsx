@@ -49,7 +49,7 @@ import { shouldPollTaskCommits } from './task-commit-polling';
 import { devQualityFindingProvider } from './dev-quality-finding-fixture';
 import { createEslintQualityFindingProvider } from '../lib/eslint-quality-findings';
 import { createChangeTour } from '../lib/create-change-tour';
-import { getChangeTourSelection, type ChangeTourScope } from '../lib/change-tour';
+import { getTaskDiffBaseBranch } from '../lib/load-task-diff';
 
 interface TaskPanelProps {
   task: Task;
@@ -100,12 +100,10 @@ export function TaskPanel(props: TaskPanelProps) {
   const [commitList, setCommitList] = createSignal<CommitInfo[]>([]);
   const [selectedCommit, setSelectedCommit] = createSignal<CommitSelection>(null);
   const tour = createChangeTour();
-  const [tourScope, setTourScope] = createSignal<ChangeTourScope>('auto');
   const tourBranchName = () =>
     store.taskGitStatus[props.task.id]?.current_branch ?? props.task.branchName;
-  const tourSelection = createMemo(() =>
-    getChangeTourSelection(tourBranchName(), tourScope(), selectedCommit()),
-  );
+  const diffBaseBranch = () =>
+    getTaskDiffBaseBranch(props.task.gitIsolation, props.task.baseBranch);
   const [startTour, setStartTour] = createSignal(false);
   const tourIdentity = createMemo(() =>
     JSON.stringify([
@@ -113,10 +111,9 @@ export function TaskPanel(props: TaskPanelProps) {
       props.task.projectId,
       props.task.worktreePath,
       props.task.branchName,
-      props.task.baseBranch,
+      diffBaseBranch(),
       tourBranchName(),
-      tourScope(),
-      tourSelection(),
+      selectedCommit(),
     ]),
   );
   createEffect(() => {
@@ -344,8 +341,6 @@ export function TaskPanel(props: TaskPanelProps) {
         setDiffScrollTarget(path);
       }}
       tour={tour}
-      tourScope={tourScope()}
-      onTourScopeChange={setTourScope}
       onTourClick={() => {
         if (tour.stops().length > 0) {
           setStartTour(true);
@@ -356,15 +351,12 @@ export function TaskPanel(props: TaskPanelProps) {
             worktreePath: props.task.worktreePath,
             projectRoot: getProject(props.task.projectId)?.path,
             branchName: tourBranchName(),
-            baseBranch: props.task.baseBranch,
+            baseBranch: diffBaseBranch(),
             selectedCommit: selectedCommit(),
-            scope: tourScope(),
           });
         }
       }}
-      tourDisabled={
-        changedFileCount() === 0 && (tourScope() === 'selection' || commitList().length === 0)
-      }
+      tourDisabled={changedFileCount() === 0}
       compact={topStripEmpty()}
       onFileCountChange={setChangedFileCount}
     />
@@ -750,7 +742,7 @@ export function TaskPanel(props: TaskPanelProps) {
           coverageReportPath={getProject(props.task.projectId)?.coverageReportPath}
           projectRoot={getProject(props.task.projectId)?.path}
           branchName={props.task.branchName}
-          baseBranch={props.task.baseBranch}
+          baseBranch={diffBaseBranch()}
           onClose={() => {
             setDiffScrollTarget(null);
             setStartTour(false);
@@ -758,7 +750,7 @@ export function TaskPanel(props: TaskPanelProps) {
           taskId={props.task.id}
           agentId={selectedAgentId()}
           commitList={commitList()}
-          selectedCommit={startTour() ? tourSelection() : selectedCommit()}
+          selectedCommit={selectedCommit()}
           onCommitNavigate={(selection) => {
             setStartTour(false);
             setSelectedCommit(selection);

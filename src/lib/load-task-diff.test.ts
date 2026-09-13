@@ -1,10 +1,15 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { invoke } from './ipc';
 import { IPC } from '../../electron/ipc/channels';
-import { loadTaskDiff } from './load-task-diff';
+import { getTaskDiffBaseBranch, loadTaskDiff } from './load-task-diff';
 
 vi.mock('./ipc', () => ({ invoke: vi.fn() }));
 afterEach(() => vi.resetAllMocks());
+
+it('auto-detects the diff base for direct tasks', () => {
+  expect(getTaskDiffBaseBranch('direct', 'feature/direct')).toBeUndefined();
+  expect(getTaskDiffBaseBranch('worktree', 'main')).toBe('main');
+});
 
 it.each([
   [null, IPC.GetAllFileDiffs, { worktreePath: '/task', baseBranch: 'main' }],

@@ -1,7 +1,6 @@
 import { Show, createSignal, createUniqueId, createEffect, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import type { ChangeTourController } from '../lib/create-change-tour';
-import type { ChangeTourScope } from '../lib/change-tour';
 import { theme } from '../lib/theme';
 import { sf } from '../lib/fontScale';
 import {
@@ -17,8 +16,6 @@ export function ChangeTourButton(props: {
   tour: ChangeTourController;
   onClick: () => void;
   disabled?: boolean;
-  scope?: ChangeTourScope;
-  onScopeChange?: (scope: ChangeTourScope) => void;
 }) {
   const ready = () => props.tour.stops().length > 0;
   const helpId = createUniqueId();
@@ -65,7 +62,7 @@ export function ChangeTourButton(props: {
     });
   });
   return (
-    <Show when={!props.disabled || props.tour.loading() || ready() || props.scope === 'selection'}>
+    <Show when={!props.disabled || props.tour.loading() || ready()}>
       <div
         style={{
           padding: '6px 8px',
@@ -93,23 +90,6 @@ export function ChangeTourButton(props: {
             'flex-wrap': 'wrap',
           }}
         >
-          <Show when={props.onScopeChange}>
-            <select
-              class="review-control"
-              aria-label="Tour scope"
-              title="Automatic: whole branch including uncommitted work; main, master and develop use uncommitted changes only. Current diff uses the commit selector."
-              value={props.scope ?? 'auto'}
-              disabled={props.tour.loading()}
-              onChange={(event) =>
-                props.onScopeChange?.(
-                  event.currentTarget.value === 'selection' ? 'selection' : 'auto',
-                )
-              }
-            >
-              <option value="auto">Automatic</option>
-              <option value="selection">Current diff</option>
-            </select>
-          </Show>
           <button
             class="review-control"
             disabled={props.disabled && !props.tour.loading() && !ready()}
@@ -149,7 +129,7 @@ export function ChangeTourButton(props: {
                   ? 'Start tour'
                   : props.tour.error()
                     ? 'Retry tour'
-                    : 'Generate tour of changes'}
+                    : 'Tour these changes'}
               <Show when={props.tour.loading()}>
                 <span style={{ display: 'block', color: theme.fgMuted, 'font-size': sf(11) }}>
                   {props.tour.progress() === 'Reading changes…'

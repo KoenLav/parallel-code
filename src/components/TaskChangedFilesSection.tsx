@@ -14,15 +14,13 @@ import { useFocusRegistration } from '../lib/focus-registration';
 import type { Task } from '../store/types';
 import type { CommitInfo } from '../ipc/types';
 import type { ChangeTourController } from '../lib/create-change-tour';
-import type { ChangeTourScope } from '../lib/change-tour';
+import { getTaskDiffBaseBranch } from '../lib/load-task-diff';
 import { ChangeTourButton } from './ChangeTourButton';
 
 interface TaskChangedFilesSectionProps {
   tour?: ChangeTourController;
   onTourClick?: () => void;
   tourDisabled?: boolean;
-  tourScope?: ChangeTourScope;
-  onTourScopeChange?: (scope: ChangeTourScope) => void;
   task: Task;
   isActive: boolean;
   commitList: CommitInfo[];
@@ -36,6 +34,8 @@ interface TaskChangedFilesSectionProps {
 
 export function TaskChangedFilesSection(props: TaskChangedFilesSectionProps) {
   const coverageReportPath = () => getProject(props.task.projectId)?.coverageReportPath;
+  const diffBaseBranch = () =>
+    getTaskDiffBaseBranch(props.task.gitIsolation, props.task.baseBranch);
   const hasCommitNav = () =>
     props.task.gitIsolation === 'worktree' || props.task.gitIsolation === 'direct';
   // The tree button only earns its place once a branch has history to graph — a
@@ -105,7 +105,7 @@ export function TaskChangedFilesSection(props: TaskChangedFilesSectionProps) {
               <CommitTreeOverlay
                 commits={props.commitList}
                 worktreePath={props.task.worktreePath}
-                baseBranch={props.task.baseBranch}
+                baseBranch={diffBaseBranch()}
                 selectedCommit={props.selectedCommit}
                 onSelectCommit={props.onCommitNavigate}
               />
@@ -164,7 +164,7 @@ export function TaskChangedFilesSection(props: TaskChangedFilesSectionProps) {
           worktreePath={props.task.worktreePath}
           projectRoot={getProject(props.task.projectId)?.path}
           branchName={props.task.branchName}
-          baseBranch={props.task.baseBranch}
+          baseBranch={diffBaseBranch()}
           isActive={props.isActive}
           panelFocused={isPanelFocused(props.task.id, 'changed-files')}
           coverageReportPath={coverageReportPath()}
@@ -180,8 +180,6 @@ export function TaskChangedFilesSection(props: TaskChangedFilesSectionProps) {
           <ChangeTourButton
             tour={tour()}
             disabled={props.tourDisabled}
-            scope={props.tourScope}
-            onScopeChange={props.onTourScopeChange}
             onClick={() => props.onTourClick?.()}
           />
         )}

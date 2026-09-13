@@ -7,7 +7,6 @@ import { parseUnifiedDiff } from '../lib/unified-diff-parser';
 import { ChangeTour } from './ChangeTour';
 import { ChangeTourButton } from './ChangeTourButton';
 import { createChangeTour } from '../lib/create-change-tour';
-import type { ChangeTourScope } from '../lib/change-tour';
 import { info as logInfo } from '../lib/log';
 import { setAskCodeProvider } from '../store/store';
 import {
@@ -56,7 +55,6 @@ function mount(initialDiff = diff, initiallyDisabled = false) {
   const [raw, setRaw] = createSignal(initialDiff);
   const [disabled, setDisabled] = createSignal(initiallyDisabled);
   const [readerOpen, setReaderOpen] = createSignal(false);
-  const [scope, setScope] = createSignal<ChangeTourScope>('auto');
   const navigate = vi.fn();
   const host = document.createElement('div');
   document.body.append(host);
@@ -68,11 +66,6 @@ function mount(initialDiff = diff, initiallyDisabled = false) {
         <>
           <ChangeTourButton
             tour={tour}
-            scope={scope()}
-            onScopeChange={(value) => {
-              setScope(value);
-              tour.reset();
-            }}
             disabled={disabled()}
             onClick={() => {
               if (tour.stops().length) setReaderOpen(true);
@@ -115,27 +108,11 @@ const largeDiff = ['file.ts', 'second.ts', 'third.ts']
   .join('');
 
 describe('guided tour', () => {
-  it('allows an explicit scope override and keeps it accessible for an empty selection', () => {
-    const { host, setDisabled } = mount();
-    const select = host.querySelector('select');
-    if (!select) throw new Error('Missing tour scope');
-    expect(select.value).toBe('auto');
-    select.value = 'selection';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    setDisabled(true);
-    expect(host.querySelector('button')?.disabled).toBe(true);
-    expect(select.isConnected).toBe(true);
-    expect(select.disabled).toBe(false);
-    expect(invoke).not.toHaveBeenCalled();
-    select.value = 'auto';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(host.textContent).toBe('');
-  });
   it('explains generation and the configured model on hover/focus without generating', () => {
     const { host } = mount();
     const button = host.querySelector('button');
     if (!button?.parentElement) throw new Error('Missing generate control');
-    expect(button.textContent).toBe('Generate tour of changes');
+    expect(button.textContent).toBe('Tour these changes');
     expect(host.querySelectorAll('button')).toHaveLength(1);
     button.parentElement.dispatchEvent(new MouseEvent('mouseenter'));
     expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('MiniMax-M2.7');
@@ -210,7 +187,7 @@ describe('guided tour', () => {
     expect(host.querySelector('button')).toBeNull();
     expect(invoke).not.toHaveBeenCalled();
     setDisabled(false);
-    expect(host.querySelector('button')?.textContent).toBe('Generate tour of changes');
+    expect(host.querySelector('button')?.textContent).toBe('Tour these changes');
     setDisabled(true);
     expect(host.querySelector('button')).toBeNull();
   });

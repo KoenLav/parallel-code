@@ -202,7 +202,7 @@ it('focuses both views on each step, can reveal all changes, and finishes withou
     JSON.parse(
       host.querySelector('[data-testid="diff-target"]')?.getAttribute('data-files') ?? '[]',
     ) as string[];
-  click('Generate tour of changes');
+  click('Tour these changes');
   await vi.waitFor(() => expect(channels).toHaveLength(1));
   complete([
     {
@@ -259,7 +259,7 @@ it('does not show a duplicate tour control in the ordinary changes overlay', asy
     expect(host.querySelector('[data-testid="diff-target"]')?.textContent).toContain('new'),
   );
   expect(host.querySelector('aside')?.style.width).toBe('300px');
-  expect(host.textContent).not.toContain('Generate tour of changes');
+  expect(host.textContent).not.toContain('Tour these changes');
   expect(host.textContent).not.toContain('Start tour');
   expect(vi.mocked(invoke).mock.calls.some(([channel]) => channel === IPC.AskAboutCode)).toBe(
     false,
@@ -286,7 +286,7 @@ it.each(['cancel', 'reset'] as const)('ignores a pending diff load after %s', as
   await Promise.resolve();
   expect(channels).toHaveLength(0);
   expect(host.querySelector('[data-testid="diff-target"]')).toBeNull();
-  expect(host.textContent).toContain('Generate tour of changes');
+  expect(host.textContent).toContain('Tour these changes');
 });
 
 it('shows a diff-loading failure inline without opening the viewer and allows retry', async () => {
@@ -406,35 +406,29 @@ it.each([
   {
     branchName: 'feature/tour',
     selectedCommit: 'abc123',
-    scope: 'auto',
-    channel: IPC.GetAllFileDiffs,
+    channel: IPC.GetCommitDiffs,
     baseBranch: 'develop',
-    expectedBase: 'develop',
   },
   {
     branchName: 'feature/tour',
     selectedCommit: 'uncommitted',
-    scope: 'auto',
-    channel: IPC.GetAllFileDiffs,
+    channel: IPC.GetUncommittedFileDiffs,
     baseBranch: 'feature/tour',
-    expectedBase: undefined,
   },
-  ...['main', 'master', 'develop'].map((branchName) => ({
-    branchName,
-    selectedCommit: null,
-    scope: 'auto' as const,
-    channel: IPC.GetUncommittedFileDiffs,
-  })),
-  { branchName: 'main', selectedCommit: 'abc123', scope: 'selection', channel: IPC.GetCommitDiffs },
-  { branchName: 'develop', selectedCommit: null, scope: 'selection', channel: IPC.GetAllFileDiffs },
   {
-    branchName: 'feature/tour',
-    selectedCommit: 'uncommitted',
-    scope: 'selection',
-    channel: IPC.GetUncommittedFileDiffs,
+    branchName: 'develop',
+    selectedCommit: null,
+    channel: IPC.GetAllFileDiffs,
+    baseBranch: 'main',
+  },
+  {
+    branchName: 'feature/direct',
+    selectedCommit: null,
+    channel: IPC.GetAllFileDiffs,
+    baseBranch: undefined,
   },
 ] as const)(
-  'generates the requested scope: $branchName / $scope / $selectedCommit',
+  'generates the currently selected diff: $branchName / $selectedCommit',
   async (input) => {
     const { tour } = mount(true);
     vi.mocked(invoke).mockImplementation(async (channel) =>
@@ -446,7 +440,8 @@ it.each([
       .mock.calls.filter(([channel]) => channel !== IPC.AskAboutCode);
     expect(gitCalls).toHaveLength(1);
     expect(gitCalls[0][0]).toBe(input.channel);
-    if ('expectedBase' in input) expect(gitCalls[0][1]?.baseBranch).toBe(input.expectedBase);
+    if (input.channel === IPC.GetAllFileDiffs)
+      expect(gitCalls[0][1]?.baseBranch).toBe(input.baseBranch);
     if (input.channel === IPC.GetCommitDiffs)
       expect(gitCalls[0][1]?.commitHash).toBe(input.selectedCommit);
     expect(invoke).toHaveBeenCalledWith(

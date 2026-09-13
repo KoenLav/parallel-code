@@ -1,19 +1,5 @@
 import { parseUnifiedDiff, type FileDiff } from './unified-diff-parser';
 import { CHANGE_TOUR_PROMPT_LIMIT } from '../../electron/shared/change-tour-limits';
-import { UNCOMMITTED_SELECTION, type CommitSelection } from '../components/CommitNavBar';
-
-export type ChangeTourScope = 'auto' | 'selection';
-
-export function getChangeTourSelection(
-  branchName: string | null | undefined,
-  scope: ChangeTourScope = 'auto',
-  selectedCommit: CommitSelection = null,
-): CommitSelection {
-  if (scope === 'selection') return selectedCommit;
-  return branchName === 'main' || branchName === 'master' || branchName === 'develop'
-    ? UNCOMMITTED_SELECTION
-    : null;
-}
 
 export interface TourStop {
   title: string;

@@ -15,6 +15,15 @@ export interface TaskDiffInput {
   selectedCommit?: CommitSelection;
 }
 
+/** Direct tasks work on their base branch, so naming that branch as the diff base
+ * would compare HEAD to itself and hide committed work from the All view. */
+export function getTaskDiffBaseBranch(
+  gitIsolation: 'worktree' | 'direct' | 'none',
+  baseBranch?: string,
+): string | undefined {
+  return gitIsolation === 'direct' ? undefined : baseBranch;
+}
+
 /** Return the repository that supplied the diff so follow-up requests use a valid cwd. */
 export async function loadTaskDiff(
   input: TaskDiffInput,
