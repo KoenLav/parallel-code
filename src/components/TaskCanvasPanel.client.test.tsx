@@ -238,7 +238,7 @@ describe('TaskCanvasPanel', () => {
   it('opens a markdown tab title context menu in the default editor', async () => {
     mockIpc();
     const { container } = mount('docs/design.md');
-    await editorParagraph(container, 'Keep state in one store.');
+    await editorLine(container, 'Keep state in one store.');
     const title = container.querySelector<HTMLElement>('[role="tab"] > span');
 
     title?.dispatchEvent(
@@ -257,7 +257,7 @@ describe('TaskCanvasPanel', () => {
   it('opens the markdown editor context menu and expands the same editor fullscreen', async () => {
     mockIpc();
     const { container } = mount('docs/design.md');
-    await editorParagraph(container, 'Keep state in one store.');
+    await editorLine(container, 'Keep state in one store.');
     const editor = container.querySelector<HTMLElement>('[data-testid="canvas-editor"]');
 
     editor?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
