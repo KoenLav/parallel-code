@@ -315,6 +315,37 @@ describe('inline task creation', () => {
     expect(store.focusMode).toBe(true);
   });
 
+  it('returns to the active task instantly when the draft is cancelled', async () => {
+    setStore('tasks', 'task', {
+      id: 'task',
+      name: 'Task',
+      projectId: 'project',
+      branchName: 'task/test',
+      worktreePath: '/repo/task',
+      agentIds: [],
+      shellAgentIds: [],
+      notes: '',
+      lastPrompt: '',
+    });
+    setStore('taskOrder', ['task']);
+    setActiveTask('task');
+    await openDraft();
+
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    Array.from(container.querySelectorAll('button'))
+      .find((el) => el.textContent === 'Cancel')
+      ?.click();
+
+    const scrollOptions = [...scrollIntoView.mock.calls, ...scrollTo.mock.calls].map(
+      ([options]) => options,
+    );
+    expect(scrollOptions).toContainEqual(expect.objectContaining({ behavior: 'instant' }));
+    expect(scrollOptions).not.toContainEqual(expect.objectContaining({ behavior: 'smooth' }));
+    scrollIntoView.mockRestore();
+    scrollTo.mockRestore();
+  });
+
   it('prevents duplicate submissions and dismissal while creation is pending', async () => {
     const prompt = await openDraft();
     let finish!: (taskId: string) => void;

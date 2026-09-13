@@ -65,6 +65,7 @@ export function TilingLayout() {
   // store.panelSizes on mouseup. Keeps autosave's snapshot stable mid-drag.
   const [dragPreview, setDragPreview] = createSignal<Record<string, number>>({});
   let isFirstActiveTaskScroll = true;
+  let wasNewTaskPanelOpen = store.showNewTaskPanel;
 
   function sizeFor(child: TileChild): number {
     const preview = dragPreview()[child.id];
@@ -202,9 +203,12 @@ export function TilingLayout() {
   // No-op in focus mode: panels are absolute-positioned, scrolling is meaningless.
   createEffect(() => {
     const activeId = store.activeTaskId;
+    const newTaskPanelOpen = store.showNewTaskPanel;
+    const returningFromNewTask = wasNewTaskPanelOpen && !newTaskPanelOpen;
+    wasNewTaskPanelOpen = newTaskPanelOpen;
     if (!containerRef) return;
     if (focusMode()) return;
-    if (store.showNewTaskPanel && !activeId) return;
+    if (newTaskPanelOpen && !activeId) return;
     if (!activeId) {
       updateViewportState();
       return;
@@ -212,7 +216,10 @@ export function TilingLayout() {
 
     const el = containerRef.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(activeId)}"]`);
     if (el) {
-      const behavior: ScrollBehavior = isFirstActiveTaskScroll ? 'instant' : 'smooth';
+      // The draft is opened at the far end of the strip. Returning across a
+      // long task list must not turn a synchronous Cancel into a long pan.
+      const behavior: ScrollBehavior =
+        isFirstActiveTaskScroll || returningFromNewTask ? 'instant' : 'smooth';
       isFirstActiveTaskScroll = false;
       scrollTaskElementIntoView(containerRef, el, behavior);
     }
