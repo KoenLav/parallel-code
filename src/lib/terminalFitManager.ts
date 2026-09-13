@@ -43,10 +43,9 @@ function flush() {
     if (!entry.dirty) continue;
     entry.dirty = false;
 
-    // xterm.js scroll position workaround (xtermjs/xterm.js#5096):
-    // fit() → resize() → Viewport._sync() can reset scrollTop to 0 when
-    // it encounters a transient dimension mismatch. Save the viewport
-    // scroll position before fitting and restore it if clobbered.
+    // Resizing rows moves the buffer's viewport before xterm synchronizes
+    // its scrollbar. scrollToLine applies a relative delta to that scrollbar,
+    // so restoring synchronously can overshoot all the way to line zero.
     const buf = entry.term.buffer.active;
     const wasScrolledUp = buf.viewportY < buf.baseY;
     const savedViewportY = buf.viewportY;
@@ -54,7 +53,11 @@ function flush() {
     entry.fitAddon.fit();
 
     if (wasScrolledUp && buf.viewportY !== savedViewportY) {
-      entry.term.scrollToLine(Math.min(savedViewportY, buf.baseY));
+      const target = Math.min(savedViewportY, buf.baseY);
+      entry.term.scrollToLine(target);
+      // The first call reconciles the buffer and scrollbar, but can land at
+      // the wrong line. Correct that offset before the browser paints.
+      if (buf.viewportY !== target) entry.term.scrollToLine(target);
     }
 
     didWork = true;
