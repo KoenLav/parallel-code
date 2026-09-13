@@ -3,6 +3,7 @@ import { createStore } from 'solid-js/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC } from '../../electron/ipc/channels';
 import { invoke } from '../lib/ipc';
+import { openFileInEditor } from '../lib/shell';
 import {
   sendPrompt,
   openCanvasDocument,
@@ -21,6 +22,10 @@ vi.mock('../lib/ipc', () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock('../lib/shell', () => ({
+  openFileInEditor: vi.fn(async () => undefined),
+}));
+
 vi.mock('../store/store', () => ({
   sendPrompt: vi.fn(async () => undefined),
   isAgentAskingQuestion: () => false,
@@ -28,6 +33,7 @@ vi.mock('../store/store', () => ({
   registerFocusFn: vi.fn(),
   unregisterFocusFn: vi.fn(),
   isPanelFocused: () => false,
+  showNotification: vi.fn(),
   openCanvasDocument: vi.fn(),
   openCanvasBrowser: vi.fn(),
   activateCanvasTab: vi.fn(),
@@ -67,6 +73,7 @@ afterEach(() => {
   vi.mocked(activateCanvasTab).mockClear();
   vi.mocked(closeCanvasTab).mockClear();
   vi.mocked(closeTaskCanvas).mockClear();
+  vi.mocked(openFileInEditor).mockClear();
 });
 
 const SOURCE = '# Design\n\nKeep state in one **store**.\n';
@@ -209,6 +216,49 @@ describe('TaskCanvasPanel', () => {
     expect(activateCanvasTab).toHaveBeenCalledWith('task-1', 'markdown:docs/design.md');
     expect(document.activeElement).toBe(tab);
     expect(enter.defaultPrevented).toBe(false);
+  });
+
+  it('opens a markdown tab title context menu in the default editor', async () => {
+    mockIpc();
+    const { container } = mount('docs/design.md');
+    await editorParagraph(container, 'Keep state in one store.');
+    const title = container.querySelector<HTMLElement>('[role="tab"] > span');
+
+    title?.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 23, clientY: 41 }),
+    );
+    const item = await waitFor(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (button) => button.textContent === 'Open in default editor',
+      ),
+    );
+    item.click();
+
+    expect(openFileInEditor).toHaveBeenCalledWith('/tmp/task', 'docs/design.md');
+  });
+
+  it('opens the markdown editor context menu and expands the same editor fullscreen', async () => {
+    mockIpc();
+    const { container } = mount('docs/design.md');
+    await editorParagraph(container, 'Keep state in one store.');
+    const editor = container.querySelector<HTMLElement>('[data-testid="canvas-editor"]');
+
+    editor?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const item = await waitFor(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (button) => button.textContent === 'Open in fullscreen editor',
+      ),
+    );
+    item.click();
+
+    const canvas = container.querySelector<HTMLElement>('[data-testid="task-canvas"]');
+    expect(canvas?.dataset.fullscreen).toBe('true');
+    expect(container.querySelectorAll('[data-testid="canvas-editor"]')).toHaveLength(1);
+    expect(container.querySelector('[title="Exit fullscreen"]')).not.toBeNull();
+    editor?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(canvas?.dataset.fullscreen).toBe('false');
   });
 
   it('returns focus from the editor to the canvas with Escape without losing edits', async () => {

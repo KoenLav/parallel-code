@@ -16,6 +16,8 @@ interface CanvasTabStripProps {
   /** The "+" menu picked a kind of canvas to open. */
   onAdd: (kind: CanvasTabKind) => void;
   onCloseAll: () => void;
+  fullscreen: boolean;
+  onExitFullscreen: () => void;
 }
 
 /** What the "+" menu offers. */
@@ -56,6 +58,7 @@ export function CanvasTabStrip(props: CanvasTabStripProps) {
             return (
               <div
                 role="tab"
+                data-canvas-document-path={tab.kind === 'markdown' ? tab.path : undefined}
                 tabIndex={0}
                 aria-selected={isActive()}
                 title={tab.kind === 'browser' ? 'Browser preview' : tab.path}
@@ -111,6 +114,25 @@ export function CanvasTabStrip(props: CanvasTabStripProps) {
         </For>
       </div>
       <div style={{ position: 'relative', display: 'flex', 'align-items': 'center', gap: '2px' }}>
+        <Show when={props.fullscreen}>
+          <button
+            type="button"
+            onClick={() => props.onExitFullscreen()}
+            title="Exit fullscreen"
+            style={{
+              padding: '3px 7px',
+              background: 'transparent',
+              border: `1px solid ${theme.border}`,
+              'border-radius': 'var(--radius-sm)',
+              color: theme.fgMuted,
+              cursor: 'pointer',
+              'font-family': 'var(--font-ui)',
+              'font-size': sf(11),
+            }}
+          >
+            Exit fullscreen
+          </button>
+        </Show>
         <IconButton
           icon={<PlusIcon size={16} />}
           onClick={() => setMenuOpen((v) => !v)}

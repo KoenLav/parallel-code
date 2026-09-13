@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createSignal, onMount } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import {
   setTaskFocusedPanel,
   isPanelFocused,
@@ -7,11 +8,14 @@ import {
   activateCanvasTab,
   closeCanvasTab,
   closeTaskCanvas,
+  showNotification,
 } from '../store/store';
 import { theme } from '../lib/theme';
 import { sf } from '../lib/fontScale';
 import { canvasTabKey, tabFromKey } from '../lib/canvas-tabs';
 import { useFocusRegistration } from '../lib/focus-registration';
+import { openFileInEditor } from '../lib/shell';
+import { errMessage } from '../lib/log';
 import type { Task } from '../store/types';
 import { ConfirmDialog } from './ConfirmDialog';
 import { CanvasFilePicker } from './CanvasFilePicker';
@@ -30,6 +34,7 @@ interface TaskCanvasPanelProps {
  */
 export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
   let panelRef: HTMLDivElement | undefined;
+  let contextMenuRef: HTMLDivElement | undefined;
   onMount(() => {
     useFocusRegistration(`${props.task.id}:canvas`, () => {
       if (!panelRef?.contains(document.activeElement)) panelRef?.focus();
@@ -39,9 +44,22 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
   const [dirtyTabs, setDirtyTabs] = createSignal<Record<string, boolean>>({});
   // The tab a close was asked for while it had unsaved edits; null for the column.
   const [confirmClose, setConfirmClose] = createSignal<string | null | false>(false);
+  const [fullscreen, setFullscreen] = createSignal(false);
+  const [contextMenu, setContextMenu] = createSignal<{
+    path: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const tabs = () => props.task.canvasTabs ?? [];
   const active = () => props.task.canvasActiveTab;
+
+  createEffect(() => {
+    if (!contextMenu()) return;
+    requestAnimationFrame(() =>
+      contextMenuRef?.querySelector<HTMLButtonElement>('button')?.focus(),
+    );
+  });
 
   // Nothing to show: the column opened from the title bar, so ask.
   createEffect(() => {
@@ -69,6 +87,13 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
   }
 
   function handleEditorFocusKey(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && fullscreen()) {
+      e.preventDefault();
+      e.stopPropagation();
+      setFullscreen(false);
+      panelRef?.focus();
+      return;
+    }
     if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     // ProseMirror prevents the default for every Escape, including plain editor focus.
     if (
@@ -94,21 +119,53 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
     editor.focus();
   }
 
+  function openDocumentContextMenu(e: MouseEvent): void {
+    if (!(e.target instanceof Element)) return;
+    const tab = e.target.closest<HTMLElement>('[data-canvas-document-path]');
+    const document = e.target.closest<HTMLElement>('[data-testid="canvas-document"]');
+    const path = tab?.dataset.canvasDocumentPath ?? document?.dataset.path;
+    if (!path) return;
+    e.preventDefault();
+    setContextMenu({
+      path,
+      x: Math.max(4, Math.min(e.clientX, window.innerWidth - 204)),
+      y: Math.max(4, Math.min(e.clientY, window.innerHeight - 76)),
+    });
+  }
+
+  function openDefaultEditor(path: string): void {
+    setContextMenu(null);
+    void openFileInEditor(props.task.worktreePath, path).catch((error) =>
+      showNotification(`Could not open ${path}: ${errMessage(error)}`),
+    );
+  }
+
+  function openFullscreenEditor(path: string): void {
+    setContextMenu(null);
+    activateCanvasTab(props.task.id, canvasTabKey({ kind: 'markdown', path }));
+    setFullscreen(true);
+  }
+
   return (
     <div
       ref={panelRef}
       tabIndex={-1}
       class="focusable-panel"
       data-testid="task-canvas"
+      data-fullscreen={fullscreen() ? 'true' : 'false'}
       data-panel-focused={isPanelFocused(props.task.id, 'canvas') ? 'true' : 'false'}
       onClick={() => setTaskFocusedPanel(props.task.id, 'canvas')}
       on:focusin={() => setTaskFocusedPanel(props.task.id, 'canvas')}
       on:keydown={handleEditorFocusKey}
+      onContextMenu={openDocumentContextMenu}
       style={{
-        height: '100%',
+        height: fullscreen() ? '100vh' : '100%',
+        width: fullscreen() ? '100vw' : undefined,
         display: 'flex',
         'flex-direction': 'column',
-        position: 'relative',
+        position: fullscreen() ? 'fixed' : 'relative',
+        inset: fullscreen() ? '0' : undefined,
+        'z-index': fullscreen() ? '1400' : undefined,
         'border-left': `1px solid ${theme.border}`,
         background: theme.taskPanelBg,
       }}
@@ -127,6 +184,8 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
             if (kind === 'browser') openCanvasBrowser(props.task.id);
           }}
           onCloseAll={requestCloseAll}
+          fullscreen={fullscreen()}
+          onExitFullscreen={() => setFullscreen(false)}
         />
         <Show when={pickerOpen()}>
           <CanvasFilePicker
@@ -196,6 +255,72 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
         onConfirm={confirmedClose}
         onCancel={() => setConfirmClose(false)}
       />
+      <Show when={contextMenu()}>
+        {(menu) => (
+          <Portal>
+            <div
+              onPointerDown={() => setContextMenu(null)}
+              style={{ position: 'fixed', inset: '0', 'z-index': '1500' }}
+            />
+            <div
+              ref={contextMenuRef}
+              role="menu"
+              class="canvas-kind-menu"
+              aria-label={`Actions for ${menu().path}`}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setContextMenu(null);
+                  panelRef?.focus();
+                }
+              }}
+              style={{
+                position: 'fixed',
+                left: `${menu().x}px`,
+                top: `${menu().y}px`,
+                'z-index': '1501',
+                width: '200px',
+                padding: '4px',
+                background: theme.bgElevated,
+                border: `1px solid ${theme.border}`,
+                'border-radius': 'var(--radius-md)',
+                'box-shadow': 'var(--shadow-soft)',
+              }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => openDefaultEditor(menu().path)}
+                style={contextMenuItemStyle}
+              >
+                Open in default editor
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => openFullscreenEditor(menu().path)}
+                style={contextMenuItemStyle}
+              >
+                Open in fullscreen editor
+              </button>
+            </div>
+          </Portal>
+        )}
+      </Show>
     </div>
   );
 }
+
+const contextMenuItemStyle = {
+  display: 'block',
+  width: '100%',
+  padding: '6px 8px',
+  background: 'transparent',
+  border: 'none',
+  'border-radius': 'var(--radius-sm)',
+  color: theme.fg,
+  cursor: 'pointer',
+  'font-family': 'var(--font-ui)',
+  'font-size': sf(12),
+  'text-align': 'left',
+} as const;
