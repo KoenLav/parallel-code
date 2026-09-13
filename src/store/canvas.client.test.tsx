@@ -253,7 +253,7 @@ describe('canvas tabs', () => {
     expect(activePath()).toBe('docs/b.md');
   });
 
-  it('closing the last tab closes the column', () => {
+  it('closing the last tab closes the column', async () => {
     const focusAgent = vi.fn();
     setStore('activeTaskId', 'task-1');
     setStore('focusedPanel', 'task-1', 'canvas');
@@ -269,6 +269,8 @@ describe('canvas tabs', () => {
     expect(store.tasks['task-1'].canvasTabs).toBeUndefined();
     expect(store.tasks['task-1'].canvasOpen).toBeUndefined();
     expect(store.focusedPanel['task-1']).toBe('ai-terminal:agent-1');
+    // Focus is applied on a microtask so batched selection changes coalesce.
+    await Promise.resolve();
     expect(focusAgent).toHaveBeenCalledOnce();
     unregisterFocusFn('task-1:ai-terminal:agent-1');
   });

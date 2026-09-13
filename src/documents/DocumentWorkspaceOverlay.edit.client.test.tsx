@@ -7,7 +7,7 @@ import { applyBlockWrite } from '../lib/canvas-blocks';
 import { invoke } from '../lib/ipc';
 import { setStore, store } from '../store/core';
 import type { CanvasWrite } from '../components/TaskCanvasEditor';
-import { DocumentWorkspaceOverlay } from './DocumentWorkspaceOverlay';
+import { DocumentWorkspacePanel } from './DocumentWorkspacePanel';
 import {
   closeDocumentWorkspace,
   documentStore,
@@ -90,7 +90,7 @@ async function mount() {
   dispose = render(
     () => (
       <Show when={store.activeDocumentProjectId}>
-        <DocumentWorkspaceOverlay />
+        <DocumentWorkspacePanel />
       </Show>
     ),
     host,
