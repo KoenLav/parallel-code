@@ -392,7 +392,8 @@ export function TilingLayout() {
       if (!documentPanel) {
         documentPanel = {
           id: '__document-workspace',
-          initialSize: TASK_TILE_DEFAULT_WIDTH,
+          // Leave room for the document and agent to open side by side.
+          initialSize: 960,
           minSize: TASK_TILE_MIN_WIDTH,
           content: () => (
             <div

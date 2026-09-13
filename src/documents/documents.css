@@ -426,14 +426,13 @@
 
 .docws-agent-prompt {
   flex: none;
-  height: 132px;
-  padding: 12px;
-  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
 }
 
-.docws-agent-prompt .prompt-textarea::placeholder {
-  color: var(--fg-muted);
-  opacity: 1;
+.docws-agent-prompt > .prompt-input-panel {
+  /* Match the regular task composer; session notices take their own space. */
+  flex: 0 0 72px;
 }
 
 .docws-decisions {

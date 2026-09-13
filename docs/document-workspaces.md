@@ -32,7 +32,9 @@ the document.
    documents lists them, to open one of those instead. The dialog says what it will do —
    create the folder, `git init`, create the file, make the first commit — and does it on
    confirm.
-3. The workspace opens as a resizable panel alongside coding tasks. Selecting another
+3. The workspace opens as a resizable panel alongside coding tasks, defaulting to 960px
+   so the document and agent sit side by side. A manually resized width is remembered.
+   Selecting another
    task leaves it open; the title-bar switcher and task navigation shortcuts include it.
    One document workspace can be open at a time; selecting another document project
    replaces the project in that panel. The header’s focus button shows the document at
