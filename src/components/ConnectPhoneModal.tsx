@@ -363,8 +363,8 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
             'line-height': '1.5',
           }}
         >
-          Scan the QR code or copy the URL to monitor and interact with your agent terminals from
-          your phone.
+          1. Scan the QR code to view your tasks. 2. Choose Enable replies below and enter the code
+          on your phone before leaving your computer.
           <Show
             when={mode() === 'tailscale'}
             fallback={<> Your phone and this computer must be on the same WiFi network.</>}
@@ -473,7 +473,7 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
                     'font-weight': '500',
                   }}
                 >
-                  Pair a device to type and create tasks
+                  Enable replies
                 </button>
                 <Show when={pairingError()}>
                   <span style={{ 'font-size': '12px', color: theme.error }}>{pairingError()}</span>
@@ -484,7 +484,7 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
             {(pin) => (
               <>
                 <span style={{ 'font-size': '12px', color: theme.fgMuted }}>
-                  Enter this code on your phone (valid 5 min):
+                  2. Enter this code on your phone to enable replies (valid 5 min):
                 </span>
                 <span
                   style={{

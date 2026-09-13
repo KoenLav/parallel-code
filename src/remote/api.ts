@@ -52,6 +52,7 @@ export async function verifyPairingPin(pin: string): Promise<string> {
 export interface MobileProject {
   id: string;
   name: string;
+  agentName?: string;
 }
 
 /** List projects the New Task screen can target. Requires a paired token. */

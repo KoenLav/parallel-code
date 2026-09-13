@@ -14,6 +14,8 @@ export interface RemoteAgent {
   status: 'running' | 'exited';
   exitCode: number | null;
   lastLine: string;
+  projectName?: string;
+  agentName?: string;
   /** Richer, renderer-derived task status. Defaults to 'idle' when unknown. */
   attention: RemoteAttentionState;
 }
@@ -43,9 +45,22 @@ export interface ScrollbackMessage {
   agentId: string;
   data: string; // base64
   cols: number;
+  rows?: number;
 }
 
-export type ServerMessage = OutputMessage | StatusMessage | AgentsMessage | ScrollbackMessage;
+export interface InputResultMessage {
+  type: 'input-result';
+  requestId: string;
+  ok: boolean;
+  error?: string;
+}
+
+export type ServerMessage =
+  | OutputMessage
+  | StatusMessage
+  | AgentsMessage
+  | ScrollbackMessage
+  | InputResultMessage;
 
 // --- Client -> Server messages ---
 
@@ -53,6 +68,9 @@ export interface InputCommand {
   type: 'input';
   agentId: string;
   data: string;
+  requestId?: string;
+  /** Submit a composed message after pasting its text. */
+  submit?: boolean;
 }
 
 export interface ResizeCommand {
@@ -108,7 +126,19 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       case 'input':
         if (typeof msg.data !== 'string') return null;
         if (msg.data.length > 4096) return null;
-        return { type: 'input', agentId: msg.agentId, data: msg.data };
+        if (
+          msg.requestId !== undefined &&
+          (typeof msg.requestId !== 'string' || !msg.requestId.length || msg.requestId.length > 80)
+        )
+          return null;
+        if (msg.submit !== undefined && typeof msg.submit !== 'boolean') return null;
+        return {
+          type: 'input',
+          agentId: msg.agentId,
+          data: msg.data,
+          ...(typeof msg.requestId === 'string' ? { requestId: msg.requestId } : {}),
+          ...(typeof msg.submit === 'boolean' ? { submit: msg.submit } : {}),
+        };
       case 'resize':
         if (typeof msg.cols !== 'number' || typeof msg.rows !== 'number') return null;
         if (!Number.isInteger(msg.cols) || !Number.isInteger(msg.rows)) return null;

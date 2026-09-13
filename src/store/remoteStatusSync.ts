@@ -8,12 +8,12 @@
 // main-side cache, and electron/remote/server.ts buildAgentList for how the
 // cached attention is attached to each RemoteAgent.
 
-import { createEffect, createRoot } from 'solid-js';
+import { createEffect, createRoot, onCleanup } from 'solid-js';
 import { store } from './store';
-import { getTaskAttentionState } from './taskStatus';
+import { getTaskAttentionState, getAgentOutputTail, stripAnsi } from './taskStatus';
 import { fireAndForget } from '../lib/ipc';
 import { IPC } from '../../electron/ipc/channels';
-import type { RemoteAttentionState } from '../../electron/remote/protocol';
+import type { RemoteAttentionState, RemoteAgent } from '../../electron/remote/protocol';
 
 export function startRemoteStatusSync(): () => void {
   // Serialized snapshot of the last push, so we only send on actual change.
@@ -24,7 +24,7 @@ export function startRemoteStatusSync(): () => void {
   // onMount past the first await, the ambient owner is already gone, so relying
   // on onCleanup/owner-disposal alone would leave the effect running forever.
   return createRoot((dispose) => {
-    createEffect(() => {
+    const sync = () => {
       // Only sync while the remote (Connect Phone) server is running — otherwise
       // no phone is listening and the push is wasted. Reading `enabled` here also
       // makes the effect re-run (and resume syncing) when the server starts.
@@ -34,15 +34,37 @@ export function startRemoteStatusSync(): () => void {
       }
 
       const statuses: Record<string, RemoteAttentionState> = {};
+      const contexts: Record<
+        string,
+        Pick<RemoteAgent, 'projectName' | 'agentName' | 'lastLine'>
+      > = {};
       for (const taskId of [...store.taskOrder, ...store.collapsedTaskOrder]) {
         statuses[taskId] = getTaskAttentionState(taskId);
+        const task = store.tasks[taskId];
+        if (!task) continue;
+        const agentId =
+          task.agentIds.find((id) => store.agents[id]?.status === 'running') ?? task.agentIds[0];
+        const agent = store.agents[agentId];
+        const lines = stripAnsi(getAgentOutputTail(agentId))
+          .split(/\r\n?|\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        contexts[taskId] = {
+          projectName: store.projects.find((project) => project.id === task.projectId)?.name ?? '',
+          agentName: agent?.def.name ?? '',
+          lastLine: (lines.at(-1) ?? '').slice(0, 300),
+        };
       }
 
-      const serialized = JSON.stringify(statuses);
+      const serialized = JSON.stringify({ statuses, contexts });
       if (serialized === lastSerialized) return;
       lastSerialized = serialized;
-      fireAndForget(IPC.Remote_UpdateTaskStatus, { statuses });
-    });
+      fireAndForget(IPC.Remote_UpdateTaskStatus, { statuses, contexts });
+    };
+    createEffect(sync);
+    // Output tails are non-reactive; keep previews current even during a long turn.
+    const timer = setInterval(sync, 2000);
+    onCleanup(() => clearInterval(timer));
 
     return dispose;
   });

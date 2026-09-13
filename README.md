@@ -142,6 +142,8 @@ npm run dev
 
 Requires [Node.js](https://nodejs.org/) v18+.
 
+Phone access uses port `8777` in development (`npm run dev`) and `7777` in the installed app, so both can run together. Run `npm run build:remote` after changing the mobile UI, then use **Connect Phone** in the development app to get its connection link or QR code.
+
 </details>
 
 <details>

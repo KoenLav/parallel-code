@@ -16,6 +16,7 @@ vi.mock('../ipc/pty.js', () => ({
   getActiveAgentIds: vi.fn(() => []),
   getAgentMeta: vi.fn(() => null),
   getAgentCols: vi.fn(() => 80),
+  getAgentRows: vi.fn(() => 24),
   onPtyEvent: vi.fn(() => vi.fn()),
 }));
 

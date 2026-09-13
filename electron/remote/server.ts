@@ -16,6 +16,7 @@ import {
   getActiveAgentIds,
   getAgentMeta,
   getAgentCols,
+  getAgentRows,
   onPtyEvent,
 } from '../ipc/pty.js';
 import {
@@ -279,6 +280,9 @@ function buildAgentList(
     lastLine: string;
   },
   getTaskAttention: (taskId: string) => RemoteAttentionState,
+  getTaskContext?: (
+    taskId: string,
+  ) => Pick<RemoteAgent, 'projectName' | 'agentName' | 'lastLine'> | undefined,
 ): RemoteAgent[] {
   const byTask = new Map<string, RemoteAgent>();
   for (const agentId of getActiveAgentIds()) {
@@ -295,6 +299,7 @@ function buildAgentList(
       exitCode: info.exitCode,
       lastLine: info.lastLine,
       attention: getTaskAttention(meta.taskId),
+      ...getTaskContext?.(meta.taskId),
     };
     // Prefer running agents over exited ones for the same task
     const existing = byTask.get(meta.taskId);
@@ -740,6 +745,9 @@ export function startRemoteServer(opts: {
   setTaskNotes?: (taskId: string, notes: string) => Promise<void>;
   /** Renderer-derived task attention state (needs input, working, ready, …). */
   getTaskAttention?: (taskId: string) => RemoteAttentionState;
+  getTaskContext?: (
+    taskId: string,
+  ) => Pick<RemoteAgent, 'projectName' | 'agentName' | 'lastLine'> | undefined;
 }): Promise<RemoteServer> {
   // Defensive default for the optional signature: every real caller wires
   // attention via mobileTaskBridge, so 'idle' is only used if a future caller
@@ -1007,7 +1015,12 @@ export function startRemoteServer(opts: {
       }
 
       if (url.pathname === '/api/agents' && req.method === 'GET') {
-        const list = buildAgentList(opts.getTaskName, opts.getAgentStatus, getTaskAttention);
+        const list = buildAgentList(
+          opts.getTaskName,
+          opts.getAgentStatus,
+          getTaskAttention,
+          opts.getTaskContext,
+        );
         res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/json' });
         res.end(JSON.stringify(list));
         return;
@@ -1201,6 +1214,7 @@ export function startRemoteServer(opts: {
   const clientSubs = new WeakMap<WebSocket, Map<string, (data: string) => void>>();
   const authenticatedClients = new Set<WebSocket>();
   const clientTokenTypes = new Map<WebSocket, 'coordinator' | 'mobile' | 'paired'>();
+  const pendingSubmissions = new Map<string, ReturnType<typeof setTimeout>>();
   const authTimers = new WeakMap<WebSocket, ReturnType<typeof setTimeout>>();
 
   function broadcast(msg: ServerMessage): void {
@@ -1213,12 +1227,22 @@ export function startRemoteServer(opts: {
   }
 
   const unsubSpawn = onPtyEvent('spawn', () => {
-    const list = buildAgentList(opts.getTaskName, opts.getAgentStatus, getTaskAttention);
+    const list = buildAgentList(
+      opts.getTaskName,
+      opts.getAgentStatus,
+      getTaskAttention,
+      opts.getTaskContext,
+    );
     broadcast({ type: 'agents', list });
   });
 
   const unsubListChanged = onPtyEvent('list-changed', () => {
-    const list = buildAgentList(opts.getTaskName, opts.getAgentStatus, getTaskAttention);
+    const list = buildAgentList(
+      opts.getTaskName,
+      opts.getAgentStatus,
+      getTaskAttention,
+      opts.getTaskContext,
+    );
     broadcast({ type: 'agents', list });
   });
 
@@ -1230,7 +1254,12 @@ export function startRemoteServer(opts: {
       clientSubs.get(client)?.delete(agentId);
     }
     setTimeout(() => {
-      const list = buildAgentList(opts.getTaskName, opts.getAgentStatus, getTaskAttention);
+      const list = buildAgentList(
+        opts.getTaskName,
+        opts.getAgentStatus,
+        getTaskAttention,
+        opts.getTaskContext,
+      );
       broadcast({ type: 'agents', list });
     }, 100);
   });
@@ -1243,7 +1272,12 @@ export function startRemoteServer(opts: {
     if (classifyToken(req) === 'coordinator') {
       authenticatedClients.add(ws);
       clientTokenTypes.set(ws, 'coordinator');
-      const list = buildAgentList(opts.getTaskName, opts.getAgentStatus, getTaskAttention);
+      const list = buildAgentList(
+        opts.getTaskName,
+        opts.getAgentStatus,
+        getTaskAttention,
+        opts.getTaskContext,
+      );
       ws.send(JSON.stringify({ type: 'agents', list } satisfies ServerMessage));
     } else {
       // Close unauthenticated connections after 5 seconds. Distinct code from
@@ -1271,7 +1305,12 @@ export function startRemoteServer(opts: {
           clientTokenTypes.set(ws, tokenType);
           const timer = authTimers.get(ws);
           if (timer) clearTimeout(timer);
-          const list = buildAgentList(opts.getTaskName, opts.getAgentStatus, getTaskAttention);
+          const list = buildAgentList(
+            opts.getTaskName,
+            opts.getAgentStatus,
+            getTaskAttention,
+            opts.getTaskContext,
+          );
           ws.send(JSON.stringify({ type: 'agents', list } satisfies ServerMessage));
         } else {
           ws.close(4001, 'Unauthorized');
@@ -1302,13 +1341,52 @@ export function startRemoteServer(opts: {
       }
 
       switch (msg.type) {
-        case 'input':
+        case 'input': {
+          const reply = (ok: boolean, error?: string) => {
+            if (msg.requestId && ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: 'input-result',
+                  requestId: msg.requestId,
+                  ok,
+                  error,
+                } satisfies ServerMessage),
+              );
+            }
+          };
+          if (pendingSubmissions.has(msg.agentId)) {
+            reply(false, 'Another message is being submitted. Try again in a moment.');
+            break;
+          }
           try {
             writeToAgent(msg.agentId, msg.data);
           } catch {
-            /* agent gone */
+            reply(false, 'This agent is no longer available. Your draft has been kept.');
+            break;
+          }
+          if (msg.submit) {
+            // Let the TUI finish processing pasted text before submitting it.
+            const delay = Math.min(500, Math.max(50, msg.data.split('\n').length * 15));
+            pendingSubmissions.set(
+              msg.agentId,
+              setTimeout(() => {
+                pendingSubmissions.delete(msg.agentId);
+                try {
+                  writeToAgent(msg.agentId, String.fromCharCode(13));
+                  reply(true);
+                } catch {
+                  reply(
+                    false,
+                    'Text reached the terminal, but submission failed. Check the terminal before retrying.',
+                  );
+                }
+              }, delay),
+            );
+          } else {
+            reply(true);
           }
           break;
+        }
 
         case 'resize':
           try {
@@ -1338,6 +1416,7 @@ export function startRemoteServer(opts: {
                 agentId: msg.agentId,
                 data: scrollback,
                 cols: getAgentCols(msg.agentId),
+                rows: getAgentRows(msg.agentId),
               } satisfies ServerMessage),
             );
           }
@@ -1417,6 +1496,8 @@ export function startRemoteServer(opts: {
     generatePairingPin,
     stop: () =>
       new Promise<void>((resolve) => {
+        for (const timer of pendingSubmissions.values()) clearTimeout(timer);
+        pendingSubmissions.clear();
         unsubSpawn();
         unsubExit();
         unsubListChanged();

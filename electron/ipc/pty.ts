@@ -726,6 +726,11 @@ export function getAgentCols(agentId: string): number {
   return s ? s.proc.cols : 80;
 }
 
+/** Return the current row count so remote clients can parse TUI cursor movement correctly. */
+export function getAgentRows(agentId: string): number {
+  return sessions.get(agentId)?.proc.rows ?? 24;
+}
+
 // --- Docker mode helpers ---
 
 /**

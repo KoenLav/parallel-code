@@ -1,18 +1,13 @@
 import { onMount, onCleanup, createSignal, createEffect, untrack, Show, For } from 'solid-js';
 import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import { TERMINAL_SCROLL_OPTIONS, base64ToUint8Array } from '../lib/terminalConstants';
 import { createTerminalHttpLinkHandler } from '../lib/terminalLinks';
 import { fetchNotes, saveNotes, ApiError } from './api';
-import { getPairedToken, clearPairedToken } from './auth';
-import { reconnect, socketCanType } from './ws';
-
-// Drafts survive the pairing detour: App unmounts this view while the user
-// enters the PIN, and text typed before that must still be there afterwards.
-// Keyed by agent so returning to a different agent starts clean.
-const inputDrafts = new Map<string, string>();
-const notesDrafts = new Map<string, string>();
+import { clearPairedToken } from './auth';
+import { readLocal, writeLocal } from './storage';
 import { agentStatusDisplay } from './attention';
+import { terminalText, messageForTerminal } from './terminalText';
+import { ConnectionBanner } from './ConnectionBanner';
 import {
   subscribeAgent,
   unsubscribeAgent,
@@ -21,39 +16,15 @@ import {
   sendInput,
   agents,
   status,
+  canControl,
 } from './ws';
-
-// Build control characters at runtime via lookup — avoids Vite stripping \r during build
-const KEYS: Record<number, string> = {};
-[3, 4, 13, 27].forEach((c) => {
-  KEYS[c] = String.fromCharCode(c);
-});
-function key(c: number): string {
-  return KEYS[c];
-}
-
-const TERM_FONT_FAMILY = "'JetBrains Mono', 'Courier New', monospace";
-
-// Measure the average monospace advance width per 1px of font-size. Used to pick
-// a font size that makes the desktop's column count exactly fill the phone's
-// width, so the terminal uses all available horizontal space instead of leaving
-// a gap (desktop narrower than phone) or overflowing (desktop wider).
-let measureCanvas: HTMLCanvasElement | undefined;
-function charWidthPerPx(): number {
-  if (!measureCanvas) measureCanvas = document.createElement('canvas');
-  const ctx = measureCanvas.getContext('2d');
-  if (!ctx) return 0.6;
-  ctx.font = `100px ${TERM_FONT_FAMILY}`;
-  // Average over a run of glyphs to smooth out sub-pixel rounding.
-  return ctx.measureText('MMMMMMMMMM').width / 10 / 100;
-}
 
 interface AgentDetailProps {
   agentId: string;
   taskName: string;
   onBack: () => void;
-  /** Typing and saving notes need the paired token; ask the user to pair. */
   onNeedsPairing: () => void;
+  onNextTask: (taskId: string) => void;
 }
 
 const openRemoteHttpLink = createTerminalHttpLinkHandler({
@@ -65,794 +36,604 @@ const openRemoteHttpLink = createTerminalHttpLinkHandler({
 
 export function AgentDetail(props: AgentDetailProps) {
   let termContainer: HTMLDivElement | undefined;
-  let inputRef: HTMLInputElement | undefined;
+  let outputArea: HTMLDivElement | undefined;
+  let reading: HTMLDivElement | undefined;
+  let terminalScroller: HTMLDivElement | undefined;
+  let inputRef: HTMLTextAreaElement | undefined;
   let term: Terminal | undefined;
-  let fitAddon: FitAddon | undefined;
-  // eslint-disable-next-line solid/reactivity -- initial value only; the draft map is re-read on each mount
-  const [inputText, setInputText] = createSignal(inputDrafts.get(props.agentId) ?? '');
-  createEffect(() => {
-    const text = inputText();
-    if (text) inputDrafts.set(props.agentId, text);
-    else inputDrafts.delete(props.agentId);
-  });
+  let disposed = false;
+  // The parent keys this component by agent ID.
+  // eslint-disable-next-line solid/reactivity
+  const draftKey = `reply:${props.agentId}`;
+  // eslint-disable-next-line solid/reactivity
+  const notesKey = `notes:${props.agentId}`;
+  const [inputText, setInputText] = createSignal(readLocal(draftKey));
+  const [sending, setSending] = createSignal(false);
+  const [sendError, setSendError] = createSignal('');
+  const [sent, setSent] = createSignal(false);
+  const [showKeys, setShowKeys] = createSignal(false);
+  const [view, setView] = createSignal<'output' | 'terminal' | 'notes'>(
+    readLocal('output-view') === 'terminal' ? 'terminal' : 'output',
+  );
+  const [output, setOutput] = createSignal('');
+  const [multilinePaste, setMultilinePaste] = createSignal(false);
   const [atBottom, setAtBottom] = createSignal(true);
-  const [termFontSize, setTermFontSize] = createSignal(10);
-  // Desktop PTY column count (from scrollback). The mobile client can't resize
-  // the PTY, so the terminal must adapt its font to this width, not vice versa.
-  const [serverCols, setServerCols] = createSignal(0);
-  // Once the user picks a font with A-/A+, stop auto-fitting so their choice sticks.
-  const [manualFont, setManualFont] = createSignal(false);
-
-  // Notes editing
-  const [view, setView] = createSignal<'terminal' | 'notes'>('terminal');
-  // eslint-disable-next-line solid/reactivity -- initial value only; the draft map is re-read on each mount
-  const notesDraft = notesDrafts.get(props.agentId);
-  const [notesText, setNotesText] = createSignal(notesDraft ?? '');
+  const [terminalBottom, setTerminalBottom] = createSignal(true);
+  const [fontSize, setFontSize] = createSignal(
+    Math.max(12, Math.min(24, Number(readLocal('terminal-font')) || 14)),
+  );
+  const [notesText, setNotesText] = createSignal(readLocal(notesKey));
+  const [notesDirty, setNotesDirty] = createSignal(readLocal(`${notesKey}:dirty`) === 'true');
   const [notesLoading, setNotesLoading] = createSignal(false);
   const [notesSaving, setNotesSaving] = createSignal(false);
-  const [notesError, setNotesError] = createSignal<string | null>(null);
-  // A restored draft is by definition unsaved, which also keeps the load
-  // effect below from overwriting it with the server's copy.
-  const [notesDirty, setNotesDirty] = createSignal(notesDraft !== undefined);
-  createEffect(() => {
-    if (notesDirty()) notesDrafts.set(props.agentId, notesText());
-    else notesDrafts.delete(props.agentId);
-  });
+  const [notesError, setNotesError] = createSignal('');
   const [notesSaved, setNotesSaved] = createSignal(false);
+  const agent = () => agents().find((a) => a.agentId === props.agentId);
+  const taskId = () => agent()?.taskId;
+  const display = () => agentStatusDisplay(agent() ?? { status: 'exited', attention: 'idle' });
+  const nextTask = () =>
+    agents().find(
+      (a) =>
+        a.agentId !== props.agentId && (a.attention === 'needs_input' || a.attention === 'error'),
+    );
 
-  const MIN_FONT = 6;
-  const MAX_FONT = 24;
-
-  const agentInfo = () => agents().find((a) => a.agentId === props.agentId);
-  const taskId = () => agentInfo()?.taskId;
-
-  // Pick the largest font (within bounds) that fits `serverCols` columns into the
-  // available width, then render exactly that many columns — filling the width.
-  function autoFitFont(): void {
-    if (!term || !termContainer || manualFont()) return;
-    const cols = serverCols();
-    if (cols <= 0) return;
-    const cs = getComputedStyle(termContainer);
-    const padX = parseFloat(cs.paddingLeft || '0') + parseFloat(cs.paddingRight || '0');
-    // Small safety margin so metric rounding never overflows into a wrapped line.
-    const avail = termContainer.clientWidth - padX - 4;
-    const perChar = charWidthPerPx();
-    if (avail <= 0 || perChar <= 0) return;
-    let fs = Math.floor(avail / (cols * perChar));
-    fs = Math.max(MIN_FONT, Math.min(MAX_FONT, fs));
-    if (term.options.fontSize !== fs) {
-      term.options.fontSize = fs;
-      setTermFontSize(fs);
-    }
-  }
-
-  // Re-fit the terminal to the container. The rendered column count always
-  // stays pinned to the desktop PTY width (`serverCols`) since the mobile
-  // client can't resize the PTY and the output is formatted for that width;
-  // only the font size changes. In auto mode autoFitFont picks the font that
-  // makes serverCols fill the width; in manual mode it no-ops and keeps the
-  // user's chosen font (so a larger font simply shows fewer visible columns).
-  function refit(): void {
-    if (!term) return;
-    autoFitFont(); // no-op while manualFont() is true
-    fitAddon?.fit();
-    const cols = serverCols();
-    if (cols > 0) term.resize(cols, term.rows);
-  }
-
-  function changeFont(delta: number): void {
-    const next = Math.max(MIN_FONT, Math.min(MAX_FONT, termFontSize() + delta));
-    if (next === termFontSize()) return;
-    setManualFont(true);
-    setTermFontSize(next);
-    if (term) {
-      term.options.fontSize = next;
-      refit();
-    }
-  }
-
-  function openNotes(): void {
-    // Just switch tabs; the effect below loads the notes. This also covers the
-    // case where taskId() is momentarily undefined (e.g. right after a WS
-    // reconnect) — the effect re-runs and loads once the agent reappears.
-    setView('notes');
-  }
-
-  async function loadNotes(id: string): Promise<void> {
-    setNotesLoading(true);
-    setNotesError(null);
-    try {
-      const n = await fetchNotes(id);
-      // Don't clobber unsaved local edits if the user reopens the tab.
-      if (!notesDirty()) setNotesText(n);
-    } catch (e) {
-      setNotesError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setNotesLoading(false);
-    }
-  }
-
-  // Load notes when the Notes tab is shown (or the task id resolves after the
-  // tab was opened). Depends only on view() and taskId(); notesDirty is read
-  // untracked as a guard — reopening the tab never discards unsaved edits, and,
-  // crucially, saving (which flips notesDirty false) does NOT retrigger a
-  // redundant reload.
+  createEffect(() => writeLocal(draftKey, inputText()));
   createEffect(() => {
-    if (view() !== 'notes') return;
-    const id = taskId();
-    if (!id) return;
-    if (untrack(notesDirty)) return;
-    void loadNotes(id);
+    if (notesDirty()) {
+      writeLocal(notesKey, notesText());
+      writeLocal(`${notesKey}:dirty`, 'true');
+    }
   });
+  createEffect(() => {
+    inputText();
+    resizeComposer();
+  });
+  function resizeComposer() {
+    if (inputRef) {
+      inputRef.style.height = 'auto';
+      inputRef.style.height = `${Math.min(160, inputRef.scrollHeight)}px`;
+    }
+  }
 
-  async function handleSaveNotes(): Promise<void> {
-    const id = taskId();
-    if (!id || notesSaving()) return;
-    setNotesSaving(true);
-    setNotesError(null);
-    try {
-      await saveNotes(id, notesText());
-      setNotesDirty(false);
-      setNotesSaved(true);
-      setTimeout(() => setNotesSaved(false), 1500);
-    } catch (e) {
-      // 401/403: no paired token, or a stale one (desktop restarted). Pairing
-      // again is the fix, so send the user there instead of showing an error.
-      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
-        clearPairedToken();
-        props.onNeedsPairing();
-        return;
-      }
-      setNotesError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setNotesSaving(false);
+  function fitTerminal() {
+    if (!term || !termContainer || !outputArea) return;
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (context) context.font = `${fontSize()}px monospace`;
+    const charWidth = context?.measureText('M').width ?? fontSize() * 0.61;
+    term.options.fontSize = fontSize();
+    const width = Math.ceil(term.cols * charWidth) + 16;
+    termContainer.style.width = `${width}px`;
+    termContainer.style.height = `${Math.ceil(term.rows * fontSize() * 1.2) + 8}px`;
+  }
+
+  function updateTerminalBottom() {
+    if (!term || !terminalScroller) return;
+    setTerminalBottom(
+      term.buffer.active.viewportY >= term.buffer.active.baseY &&
+        terminalScroller.scrollHeight - terminalScroller.scrollTop - terminalScroller.clientHeight <
+          48,
+    );
+  }
+
+  function jumpToLatest() {
+    if (view() === 'terminal') {
+      term?.scrollToBottom();
+      if (terminalScroller) terminalScroller.scrollTop = terminalScroller.scrollHeight;
+      setTerminalBottom(true);
+    } else if (reading) {
+      reading.scrollTop = reading.scrollHeight;
+      setAtBottom(true);
     }
   }
 
   onMount(() => {
     if (!termContainer) return;
-
-    // Attach native Enter detection directly to the input element.
-    // SolidJS event delegation + Android IMEs are unreliable for form submit.
-    if (inputRef) {
-      const enterHandler = (e: Event) => {
-        const ke = e as KeyboardEvent;
-        if (ke.key === 'Enter' || ke.keyCode === 13) {
-          e.preventDefault();
-          handleSend();
-        }
-      };
-      inputRef.addEventListener('keydown', enterHandler);
-      onCleanup(() => {
-        inputRef?.removeEventListener('keydown', enterHandler);
-      });
-    }
-
-    // Disable xterm helper elements that capture touch events over
-    // the header/input areas (not needed since disableStdin is true)
-    const style = document.createElement('style');
-    style.textContent =
-      '.xterm-helper-textarea, .xterm-composition-view { pointer-events: none !important; }';
-    document.head.appendChild(style);
-    onCleanup(() => style.remove());
-
     term = new Terminal({
-      fontSize: 10,
-      fontFamily: TERM_FONT_FAMILY,
-      theme: { background: '#0b0f14' },
+      cols: 80,
+      rows: 24,
+      fontSize: fontSize(),
+      fontFamily: 'monospace',
+      lineHeight: 1.2,
+      theme: { background: '#0b0f14', foreground: '#dce7f1' },
       ...TERMINAL_SCROLL_OPTIONS,
       cursorBlink: false,
       disableStdin: true,
-      convertEol: false,
-      linkHandler: {
-        activate: openRemoteHttpLink,
-        allowNonHttpProtocols: false,
-      },
+      linkHandler: { activate: openRemoteHttpLink, allowNonHttpProtocols: false },
     });
-
-    fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
     term.open(termContainer);
-    fitAddon.fit();
-
-    term.onScroll(() => {
-      if (!term) return;
-      const isBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
-      setAtBottom(isBottom);
-    });
-
-    // eslint-disable-next-line solid/reactivity -- output subscription is not a reactive context; refit reads current signal values intentionally
-    const cleanupScrollback = onScrollback(props.agentId, (data, cols) => {
-      if (cols > 0) setServerCols(cols);
-      // Fit the font/geometry to the desktop's column count so the terminal
-      // fills the available width.
-      refit();
-      // Clear before writing — on reconnect the server re-sends the full
-      // scrollback buffer, so we must avoid duplicate content.
-      term?.clear();
-      const bytes = base64ToUint8Array(data);
-      term?.write(bytes, () => {
-        const t = term;
-        if (!t) return;
-        t.scrollToBottom();
-        // Force a repaint of the just-written scrollback. On a freshly-opened
-        // task the replayed buffer can stay blank until the next live output:
-        // xterm requests a paint while parsing write(), but its renderer drops
-        // that request while the terminal's layout/visibility is still settling
-        // (RenderService pauses paints until the container is on-screen). An
-        // explicit refresh after the write repaints the current viewport.
-        // Guarded because the terminal may be mid-dispose; mirrors the desktop
-        // redrawTerminal path (terminalFitManager.ts).
-        try {
-          t.refresh(0, t.rows - 1);
-        } catch {
-          /* terminal mid-dispose — a cosmetic repaint must never throw */
+    fitTerminal();
+    let outputTimer: ReturnType<typeof setTimeout> | undefined;
+    let frame = 0;
+    let terminalFrame = 0;
+    const updateOutput = () => {
+      if (outputTimer) return;
+      outputTimer = setTimeout(() => {
+        outputTimer = undefined;
+        if (!term) return;
+        const follow = atBottom();
+        setOutput(terminalText(term.buffer.active));
+        setMultilinePaste(term.modes.bracketedPasteMode);
+        if (follow && reading) {
+          cancelAnimationFrame(frame);
+          frame = requestAnimationFrame(() => {
+            if (reading) reading.scrollTop = reading.scrollHeight;
+          });
         }
+      }, 100);
+    };
+    const scrollListener = term.onScroll(updateTerminalBottom);
+    const parsedListener = term.onWriteParsed(updateOutput);
+    // eslint-disable-next-line solid/reactivity -- socket callbacks read the latest layout settings
+    const cleanupScrollback = onScrollback(props.agentId, (data, cols, rows) => {
+      if (!term) return;
+      const followTerminal = terminalBottom();
+      // Reset parser and screen so reconnecting cannot duplicate an old frame.
+      term.reset();
+      term.resize(Math.max(1, cols || 80), Math.max(1, rows || 24));
+      fitTerminal();
+      term.write(base64ToUint8Array(data), () => {
+        updateOutput();
+        cancelAnimationFrame(terminalFrame);
+        terminalFrame = requestAnimationFrame(() => {
+          if (disposed) return;
+          if (followTerminal && view() === 'terminal') jumpToLatest();
+          else updateTerminalBottom();
+        });
       });
     });
-
-    const cleanupOutput = onOutput(props.agentId, (data) => {
-      const bytes = base64ToUint8Array(data);
-      term?.write(bytes);
-    });
-
+    const cleanupOutput = onOutput(props.agentId, (data) =>
+      term?.write(base64ToUint8Array(data), updateOutput),
+    );
     subscribeAgent(props.agentId);
-
-    let resizeRaf = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(resizeRaf);
-      resizeRaf = requestAnimationFrame(() => refit());
-    });
-    observer.observe(termContainer);
-
-    // Refit terminal when soft keyboard opens/closes on mobile
-    if (window.visualViewport) {
-      const onViewportResize = () => refit();
-      window.visualViewport.addEventListener('resize', onViewportResize);
-      onCleanup(() => window.visualViewport?.removeEventListener('resize', onViewportResize));
-    }
-
-    // The initial auto-fit may measure the fallback font if JetBrains Mono
-    // hasn't loaded yet; re-fit once it's ready so the font size is correct.
-    // eslint-disable-next-line solid/reactivity -- promise callback is not a reactive context; refit reads current signal values intentionally
-    document.fonts?.ready.then(() => refit()).catch(() => {});
-
-    // Manual touch scrolling for mobile — xterm.js doesn't handle this well
-    let touchStartY = 0;
-    let touchActive = false;
-    const onTouchStart = (e: TouchEvent) => {
+    const observer = new ResizeObserver(fitTerminal);
+    if (outputArea) observer.observe(outputArea);
+    // xterm's document-level gesture handler prevents native panning. Own
+    // single-finger gestures here so columns/rows pan before scrollback does.
+    let touchX = 0;
+    let touchY = 0;
+    let historyPixels = 0;
+    const touchStart = (e: TouchEvent) => {
+      e.stopPropagation();
+      historyPixels = 0;
       if (e.touches.length === 1) {
-        touchStartY = e.touches[0].clientY;
-        touchActive = true;
+        touchX = e.touches[0].clientX;
+        touchY = e.touches[0].clientY;
       }
     };
-    const onTouchMove = (e: TouchEvent) => {
-      if (!touchActive || !term || e.touches.length !== 1) return;
-      const dy = touchStartY - e.touches[0].clientY;
-      const lineHeight = term.options.fontSize ?? 13;
-      const lines = Math.trunc(dy / lineHeight);
-      if (lines !== 0) {
-        term.scrollLines(lines);
-        touchStartY = e.touches[0].clientY;
-      }
+    const touchMove = (e: TouchEvent) => {
+      e.stopPropagation();
+      // Let the browser handle pinch zoom.
+      if (!term || !terminalScroller || e.touches.length !== 1) return;
       e.preventDefault();
+      const dx = touchX - e.touches[0].clientX;
+      const dy = touchY - e.touches[0].clientY;
+      touchX = e.touches[0].clientX;
+      touchY = e.touches[0].clientY;
+      terminalScroller.scrollLeft += dx;
+      const previousTop = terminalScroller.scrollTop;
+      terminalScroller.scrollTop = Math.max(
+        0,
+        Math.min(terminalScroller.scrollHeight - terminalScroller.clientHeight, previousTop + dy),
+      );
+      if (Math.abs(dy) >= Math.abs(dx)) {
+        historyPixels += dy - (terminalScroller.scrollTop - previousTop);
+        const lineHeight = fontSize() * 1.2;
+        const lines = Math.trunc(historyPixels / lineHeight);
+        if (lines) {
+          term.scrollLines(lines);
+          historyPixels -= lines * lineHeight;
+        }
+      }
+      updateTerminalBottom();
     };
-    const onTouchEnd = () => {
-      touchActive = false;
-    };
-    termContainer.addEventListener('touchstart', onTouchStart, { passive: true });
-    termContainer.addEventListener('touchmove', onTouchMove, { passive: false });
-    termContainer.addEventListener('touchend', onTouchEnd, { passive: true });
-
+    const touchEnd = (e: TouchEvent) => e.stopPropagation();
+    termContainer.addEventListener('touchstart', touchStart, { passive: true });
+    termContainer.addEventListener('touchmove', touchMove, { passive: false });
+    termContainer.addEventListener('touchend', touchEnd, { passive: true });
     onCleanup(() => {
-      termContainer.removeEventListener('touchstart', onTouchStart);
-      termContainer.removeEventListener('touchmove', onTouchMove);
-      termContainer.removeEventListener('touchend', onTouchEnd);
+      disposed = true;
+      clearTimeout(outputTimer);
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(terminalFrame);
       observer.disconnect();
-      // Cancel any queued refit so it can't run against the disposed terminal.
-      cancelAnimationFrame(resizeRaf);
+      termContainer?.removeEventListener('touchstart', touchStart);
+      termContainer?.removeEventListener('touchmove', touchMove);
+      termContainer?.removeEventListener('touchend', touchEnd);
       unsubscribeAgent(props.agentId);
       cleanupScrollback();
       cleanupOutput();
+      scrollListener.dispose();
+      parsedListener.dispose();
       term?.dispose();
-      // Null it so a stray rAF (e.g. the tab-switch refit) short-circuits in
-      // refit()/handlers instead of touching a disposed xterm instance.
       term = undefined;
     });
   });
 
-  // Dedup guard: multiple event sources (keydown, onInput fallback) can
-  // fire handleSend for the same Enter press. The sendId ensures only
-  // the latest invocation sends the delayed \r.
-  let lastSendId = 0;
+  createEffect(() => {
+    const id = taskId();
+    if (view() !== 'notes' || !id || untrack(notesDirty)) return;
+    let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
+    });
+    setNotesLoading(true);
+    setNotesError('');
+    fetchNotes(id)
+      .then((text) => {
+        if (!cancelled && !untrack(notesDirty)) setNotesText(text);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setNotesError(err instanceof Error ? err.message : 'Could not load notes');
+      })
+      .finally(() => {
+        if (!cancelled) setNotesLoading(false);
+      });
+  });
 
-  /** Typing needs the paired token; without one, detour to the pairing screen. */
-  function ensurePairedForInput(): boolean {
-    if (!getPairedToken()) {
+  async function handleSaveNotes() {
+    const id = taskId();
+    if (!id || notesSaving()) return;
+    if (!canControl()) {
       props.onNeedsPairing();
-      return false;
+      return;
     }
-    // Paired in another tab, or the socket predates pairing: the server only
-    // knows what this socket authenticated with. Reconnect with the paired
-    // token; the typed text stays in the box for the next send.
-    if (!socketCanType()) {
-      reconnect();
-      return false;
+    const text = notesText();
+    setNotesSaving(true);
+    setNotesError('');
+    try {
+      await saveNotes(id, text);
+      if (disposed) return;
+      if (notesText() === text) {
+        setNotesDirty(false);
+        setNotesSaved(true);
+        writeLocal(notesKey, '');
+        writeLocal(`${notesKey}:dirty`, '');
+      }
+    } catch (err) {
+      if (disposed) return;
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        clearPairedToken();
+        props.onNeedsPairing();
+      } else setNotesError(err instanceof Error ? err.message : 'Could not save notes');
+    } finally {
+      if (!disposed) setNotesSaving(false);
     }
-    return true;
   }
 
-  function handleSend() {
+  async function handleSend() {
+    if (sending() || !inputText().trim()) return;
+    if (!canControl()) {
+      props.onNeedsPairing();
+      return;
+    }
     const text = inputText();
-    if (!text) return;
-    if (!ensurePairedForInput()) return;
-    // Keep the typed text while disconnected — send() silently drops
-    // messages on a non-open socket, so clearing here would lose input.
-    if (status() !== 'connected') return;
-    const id = ++lastSendId;
-    // Send text and Enter separately — TUI apps (Claude Code, Codex)
-    // treat \r inside a pasted block as a literal, not as confirmation.
-    sendInput(props.agentId, text);
-    setInputText('');
-    setTimeout(() => {
-      if (lastSendId === id) sendInput(props.agentId, key(13));
-    }, 50);
+    const data = messageForTerminal(text, term?.modes.bracketedPasteMode ?? false);
+    if (!data) return;
+    setSending(true);
+    setSendError('');
+    setSent(false);
+    try {
+      await sendInput(props.agentId, data, true);
+      // Clear only the accepted draft, including when the user navigated away.
+      if (readLocal(draftKey) === text) writeLocal(draftKey, '');
+      if (!disposed) {
+        if (inputText() === text) setInputText('');
+        setSent(true);
+      }
+    } catch (err) {
+      if (!disposed)
+        setSendError(err instanceof Error ? err.message : 'Could not send. Your draft is saved.');
+    } finally {
+      if (!disposed) setSending(false);
+    }
   }
 
-  function handleQuickAction(data: string) {
-    if (!ensurePairedForInput()) return;
-    sendInput(props.agentId, data);
+  async function quickKey(data: string) {
+    if (!canControl() || sending()) return;
+    setSending(true);
+    setSendError('');
+    setSent(false);
+    try {
+      await sendInput(props.agentId, data);
+    } catch (err) {
+      if (!disposed) setSendError(err instanceof Error ? err.message : 'Could not send key');
+    } finally {
+      if (!disposed) setSending(false);
+    }
   }
 
-  function scrollToBottom() {
-    term?.scrollToBottom();
+  function selectView(next: 'output' | 'terminal' | 'notes') {
+    setView(next);
+    if (next !== 'notes') writeLocal('output-view', next);
+    requestAnimationFrame(() => {
+      if (!disposed) {
+        fitTerminal();
+        if (next === 'terminal' || (next === 'output' && atBottom())) jumpToLatest();
+      }
+    });
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        'flex-direction': 'column',
-        height: '100%',
-        background: '#0b0f14',
-        position: 'relative',
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          'align-items': 'center',
-          gap: '10px',
-          padding: '10px 14px',
-          'border-bottom': '1px solid #223040',
-          'flex-shrink': '0',
-          position: 'relative',
-          'z-index': '10',
-          background: '#12181f',
-        }}
-      >
+    <div class="mobile-screen">
+      <header class="mobile-header mobile-task-header">
         <button
+          class="mobile-button quiet"
           onClick={() => props.onBack()}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#2ec8ff',
-            'font-size': '17px',
-            cursor: 'pointer',
-            padding: '8px 10px',
-            'touch-action': 'manipulation',
-          }}
+          aria-label="Back to tasks"
         >
-          &#8592; Back
+          ←
         </button>
-        <span
-          style={{
-            'font-size': '15px',
-            'font-weight': '500',
-            color: '#d7e4f0',
-            flex: '1',
-            overflow: 'hidden',
-            'text-overflow': 'ellipsis',
-            'white-space': 'nowrap',
-          }}
-        >
-          {props.taskName}
-        </span>
-        <Show when={agentInfo()} fallback={<div style={{ width: '8px' }} />}>
-          {(info) => {
-            const display = () => agentStatusDisplay(info());
-            return (
-              <div
-                style={{ display: 'flex', 'align-items': 'center', gap: '6px', 'flex-shrink': '0' }}
-              >
-                <span
-                  style={{
-                    'font-size': '12px',
-                    'font-weight': display().glow ? '600' : '400',
-                    color: display().color,
-                  }}
-                >
-                  {display().label}
-                </span>
-                <div
-                  style={{
-                    width: '8px',
-                    height: '8px',
-                    'border-radius': '50%',
-                    background: display().color,
-                    'box-shadow': display().glow ? `0 0 0 3px ${display().color}33` : 'none',
-                  }}
-                />
-              </div>
-            );
-          }}
-        </Show>
-      </div>
-
-      {/* Terminal / Notes tabs */}
-      <div
-        style={{
-          display: 'flex',
-          'flex-shrink': '0',
-          'border-bottom': '1px solid #223040',
-          background: '#12181f',
-          position: 'relative',
-          'z-index': '10',
-        }}
-      >
+        <div class="heading">
+          <h1 title={props.taskName}>{props.taskName}</h1>
+          <p class="mobile-task-context">
+            {[agent()?.projectName, agent()?.agentName].filter(Boolean).join(' · ')}
+          </p>
+          <span class="agent-status" style={{ color: display().color }}>
+            <span class="status-dot" aria-hidden="true" />
+            {display().label}
+          </span>
+        </div>
+      </header>
+      <ConnectionBanner />
+      <Show when={status() === 'connected' && !canControl()}>
+        <div class="mobile-banner info">
+          <span>View only</span>
+          <button class="mobile-button quiet" onClick={() => props.onNeedsPairing()}>
+            Enable replies
+          </button>
+        </div>
+      </Show>
+      <nav class="mobile-tabs" aria-label="Task views">
         <For
           each={[
+            { id: 'output' as const, label: 'Read' },
             { id: 'terminal' as const, label: 'Terminal' },
             { id: 'notes' as const, label: 'Notes' },
           ]}
         >
           {(tab) => (
-            <button
-              onClick={() => {
-                if (tab.id === 'notes') {
-                  void openNotes();
-                } else {
-                  setView('terminal');
-                  // The terminal was display:none while Notes was open; re-fit
-                  // once it's laid out again so it fills the width.
-                  requestAnimationFrame(() => refit());
-                }
-              }}
-              style={{
-                flex: '1',
-                padding: '10px 0',
-                background: 'none',
-                border: 'none',
-                'border-bottom': view() === tab.id ? '2px solid #2ec8ff' : '2px solid transparent',
-                color: view() === tab.id ? '#d7e4f0' : '#678197',
-                'font-size': '14px',
-                'font-weight': '500',
-                cursor: 'pointer',
-                'touch-action': 'manipulation',
-              }}
-            >
+            <button aria-pressed={view() === tab.id} onClick={() => selectView(tab.id)}>
               {tab.label}
             </button>
           )}
         </For>
-      </div>
-
-      {/* Connection status banner */}
-      <Show when={status() !== 'connected'}>
+      </nav>
+      <div ref={outputArea} class="mobile-output-area">
         <div
-          style={{
-            padding: '6px 16px',
-            background: status() === 'connecting' ? '#78350f' : '#7f1d1d',
-            color: status() === 'connecting' ? '#fde68a' : '#fca5a5',
-            'font-size': '13px',
-            'text-align': 'center',
-            'flex-shrink': '0',
-          }}
+          ref={terminalScroller}
+          onScroll={updateTerminalBottom}
+          class="mobile-terminal-scroll"
+          classList={{ 'mobile-terminal-hidden': view() !== 'terminal' }}
+          aria-hidden={view() !== 'terminal'}
         >
-          {status() === 'connecting' ? 'Reconnecting...' : 'Disconnected — check your network'}
+          <div ref={termContainer} class="mobile-terminal" />
         </div>
-      </Show>
-
-      {/* Terminal — overflow:hidden clips xterm.js overlays so they don't
-           capture touch events over the header/input areas. Kept mounted (hidden,
-           not unmounted) when the Notes tab is active so output keeps streaming. */}
-      <div
-        ref={termContainer}
-        style={{
-          flex: '1',
-          'min-height': '0',
-          padding: '4px',
-          position: 'relative',
-          overflow: 'hidden',
-          display: view() === 'terminal' ? 'block' : 'none',
-        }}
-      />
-
-      {/* Notes editor */}
-      <Show when={view() === 'notes'}>
-        <div
-          style={{
-            flex: '1',
-            'min-height': '0',
-            display: 'flex',
-            'flex-direction': 'column',
-            background: '#0b0f14',
-          }}
-        >
-          <Show when={notesError()}>
-            <div
-              style={{
-                padding: '8px 14px',
-                background: '#7f1d1d',
-                color: '#fca5a5',
-                'font-size': '13px',
-                'flex-shrink': '0',
-              }}
-            >
-              {notesError()}
-            </div>
-          </Show>
-          <textarea
-            value={notesText()}
-            disabled={notesLoading()}
-            onInput={(e) => {
-              setNotesText(e.currentTarget.value);
-              setNotesDirty(true);
-              // Clear a lingering "Saved" so editing right after a save doesn't
-              // keep showing "Saved" over genuine unsaved changes.
-              setNotesSaved(false);
-            }}
-            placeholder={notesLoading() ? 'Loading notes…' : 'Notes for this task…'}
-            style={{
-              flex: '1',
-              'min-height': '0',
-              width: '100%',
-              background: '#0b0f14',
-              border: 'none',
-              padding: '12px 14px',
-              color: '#d7e4f0',
-              'font-size': '15px',
-              'font-family': "'JetBrains Mono', 'Courier New', monospace",
-              'line-height': '1.5',
-              resize: 'none',
-              outline: 'none',
-              'box-sizing': 'border-box',
-            }}
-          />
+        <Show when={view() === 'output'}>
           <div
-            style={{
-              display: 'flex',
-              'align-items': 'center',
-              gap: '10px',
-              padding: '10px 14px max(10px, env(safe-area-inset-bottom)) 14px',
-              'border-top': '1px solid #223040',
-              background: '#12181f',
-              'flex-shrink': '0',
-            }}
+            ref={reading}
+            class="mobile-reading"
+            onScroll={(e) =>
+              setAtBottom(
+                e.currentTarget.scrollHeight -
+                  e.currentTarget.scrollTop -
+                  e.currentTarget.clientHeight <
+                  48,
+              )
+            }
           >
-            <span style={{ 'font-size': '13px', color: '#678197' }}>
-              {notesSaving()
-                ? 'Saving…'
-                : notesSaved()
-                  ? 'Saved'
-                  : notesDirty()
-                    ? 'Unsaved changes'
-                    : ''}
-            </span>
-            <button
-              type="button"
-              disabled={notesSaving() || notesLoading() || !taskId()}
-              onClick={() => void handleSaveNotes()}
-              style={{
-                'margin-left': 'auto',
-                background: notesSaving() || notesLoading() || !taskId() ? '#1a2430' : '#2ec8ff',
-                color: notesSaving() || notesLoading() || !taskId() ? '#678197' : '#031018',
-                border: 'none',
-                'border-radius': '10px',
-                padding: '10px 22px',
-                'font-size': '15px',
-                'font-weight': '600',
-                cursor: notesSaving() || notesLoading() || !taskId() ? 'default' : 'pointer',
-                'touch-action': 'manipulation',
-              }}
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      </Show>
-
-      {/* Scroll to bottom FAB */}
-      <Show when={view() === 'terminal' && !atBottom()}>
-        <button
-          onClick={scrollToBottom}
-          style={{
-            position: 'absolute',
-            bottom: '140px',
-            right: '16px',
-            width: '40px',
-            height: '40px',
-            'border-radius': '50%',
-            background: '#12181f',
-            border: '1px solid #223040',
-            color: '#d7e4f0',
-            'font-size': '17px',
-            cursor: 'pointer',
-            display: 'flex',
-            'align-items': 'center',
-            'justify-content': 'center',
-            'z-index': '10',
-            'touch-action': 'manipulation',
-          }}
-        >
-          &#8595;
-        </button>
-      </Show>
-
-      {/* Input area */}
-      <div
-        style={{
-          'border-top': '1px solid #223040',
-          padding: '8px 10px max(8px, env(safe-area-inset-bottom)) 10px',
-          display: view() === 'terminal' ? 'flex' : 'none',
-          'flex-direction': 'column',
-          gap: '6px',
-          'flex-shrink': '0',
-          background: '#12181f',
-          position: 'relative',
-          'z-index': '10',
-        }}
-      >
-        {/* No <form> — it triggers Chrome's autofill heuristics on Android.
-             name/id/autocomplete use gibberish so Chrome can't classify the field. */}
-        <div style={{ display: 'flex', gap: '8px', 'align-items': 'center' }}>
-          <input
-            ref={inputRef}
-            type="text"
-            enterkeyhint="send"
-            name="xq9k_cmd"
-            id="xq9k_cmd"
-            autocomplete="xq9k_cmd"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck={false}
-            inputmode="text"
-            value={inputText()}
-            onInput={(e) => {
-              const val = e.currentTarget.value;
-              // Fallback: some Android IMEs insert newline into the value
-              const last = val.charCodeAt(val.length - 1);
-              if (last === 10 || last === 13) {
-                const clean = val.slice(0, -1);
-                setInputText(clean);
-                e.currentTarget.value = clean;
-                handleSend();
-                return;
+            <p class="mobile-eyebrow">Agent output</p>
+            <Show
+              when={output()}
+              fallback={
+                <div class="mobile-empty" role="status">
+                  <h2>
+                    {status() !== 'connected'
+                      ? 'Reconnecting to your agent'
+                      : agent()?.status === 'exited'
+                        ? 'Agent session ended'
+                        : 'No output yet'}
+                  </h2>
+                  <p>
+                    {status() !== 'connected'
+                      ? 'Output will resume when your computer is reachable.'
+                      : agent()?.status === 'exited'
+                        ? 'Return to your tasks to continue working.'
+                        : 'Its output will appear here as it works.'}
+                  </p>
+                </div>
               }
-              setInputText(val);
-            }}
-            placeholder="Type command..."
-            style={{
-              flex: '1',
-              background: '#10161d',
-              border: '1px solid #223040',
-              'border-radius': '12px',
-              padding: '10px 14px',
-              color: '#d7e4f0',
-              'font-size': '15px',
-              'font-family': "'JetBrains Mono', 'Courier New', monospace",
-              outline: 'none',
-              transition: 'border-color 0.16s ease',
-            }}
-          />
-          <button
-            type="button"
-            disabled={!inputText().trim()}
-            onClick={() => handleSend()}
-            style={{
-              background: inputText().trim() ? '#2ec8ff' : '#1a2430',
-              border: 'none',
-              'border-radius': '50%',
-              width: '40px',
-              height: '40px',
-              color: inputText().trim() ? '#031018' : '#678197',
-              cursor: inputText().trim() ? 'pointer' : 'default',
-              display: 'flex',
-              'align-items': 'center',
-              'justify-content': 'center',
-              padding: '0',
-              'flex-shrink': '0',
-              'touch-action': 'manipulation',
-              transition: 'background 0.15s, color 0.15s',
-            }}
-            title="Send"
-          >
-            <svg width="18" height="18" viewBox="0 0 14 14" fill="none">
-              <path
-                d="M7 12V2M7 2L3 6M7 2l4 4"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', gap: '6px', 'flex-wrap': 'wrap' }}>
-          <For
-            each={[
-              { label: 'Enter', data: () => key(13) },
-              { label: '↑', data: () => key(27) + '[A' },
-              { label: '↓', data: () => key(27) + '[B' },
-              { label: 'Ctrl+C', data: () => key(3) },
-            ]}
-          >
-            {(action) => (
-              <button
-                onClick={() => handleQuickAction(action.data())}
-                style={{
-                  background: '#1a2430',
-                  border: '1px solid #223040',
-                  'border-radius': '8px',
-                  padding: '10px 16px',
-                  color: '#9bb0c3',
-                  'font-size': '14px',
-                  'font-family': "'JetBrains Mono', 'Courier New', monospace",
-                  cursor: 'pointer',
-                  'touch-action': 'manipulation',
-                  transition: 'background 0.16s ease',
-                }}
-              >
-                {action.label}
-              </button>
-            )}
-          </For>
-          <div style={{ 'margin-left': 'auto', display: 'flex', gap: '6px' }}>
-            <button
-              onClick={() => changeFont(-1)}
-              disabled={termFontSize() <= MIN_FONT}
-              style={{
-                background: '#1a2430',
-                border: '1px solid #223040',
-                'border-radius': '8px',
-                padding: '10px 14px',
-                color: termFontSize() <= MIN_FONT ? '#344050' : '#9bb0c3',
-                'font-size': '14px',
-                'font-weight': '700',
-                'font-family': "'JetBrains Mono', 'Courier New', monospace",
-                cursor: termFontSize() <= MIN_FONT ? 'default' : 'pointer',
-                'touch-action': 'manipulation',
-                transition: 'background 0.16s ease',
-              }}
-              title="Decrease font size"
             >
-              A-
-            </button>
-            <button
-              onClick={() => changeFont(1)}
-              disabled={termFontSize() >= MAX_FONT}
-              style={{
-                background: '#1a2430',
-                border: '1px solid #223040',
-                'border-radius': '8px',
-                padding: '10px 14px',
-                color: termFontSize() >= MAX_FONT ? '#344050' : '#9bb0c3',
-                'font-size': '14px',
-                'font-weight': '700',
-                'font-family': "'JetBrains Mono', 'Courier New', monospace",
-                cursor: termFontSize() >= MAX_FONT ? 'default' : 'pointer',
-                'touch-action': 'manipulation',
-                transition: 'background 0.16s ease',
-              }}
-              title="Increase font size"
-            >
-              A+
-            </button>
+              <pre>{output()}</pre>
+            </Show>
           </div>
-        </div>
+        </Show>
+        <Show when={view() === 'notes'}>
+          <div class="mobile-scroll mobile-notes">
+            <Show when={notesError()}>
+              <p class="mobile-error" role="alert">
+                {notesError()}
+              </p>
+            </Show>
+            <label class="muted" for="task-notes">
+              Task notes
+            </label>
+            <p class="muted">Keep context here. Saving notes won’t send a message to the agent.</p>
+            <textarea
+              id="task-notes"
+              class="mobile-input"
+              rows={12}
+              value={notesText()}
+              disabled={notesLoading()}
+              onInput={(e) => {
+                setNotesText(e.currentTarget.value);
+                setNotesDirty(true);
+                setNotesSaved(false);
+              }}
+              placeholder={notesLoading() ? 'Loading notes…' : 'Keep context for this task…'}
+            />
+          </div>
+        </Show>
+        <Show
+          when={
+            (view() === 'output' && !atBottom()) || (view() === 'terminal' && !terminalBottom())
+          }
+        >
+          <button class="mobile-button mobile-latest" onClick={jumpToLatest}>
+            ↓ Latest output
+          </button>
+        </Show>
       </div>
+      <Show
+        when={view() === 'notes'}
+        fallback={
+          <div class="mobile-composer">
+            <Show when={inputText().includes('\n') && !multilinePaste()}>
+              <p class="muted">This terminal sends line breaks as spaces.</p>
+            </Show>
+            <Show when={sendError()}>
+              <p class="mobile-error" role="alert">
+                {sendError()}
+              </p>
+            </Show>
+            <div class="mobile-composer-row">
+              <textarea
+                ref={(element) => {
+                  inputRef = element;
+                  queueMicrotask(() => {
+                    if (!disposed) resizeComposer();
+                  });
+                }}
+                class="mobile-input"
+                rows={1}
+                maxlength={4000}
+                aria-label="Message agent"
+                placeholder={
+                  agent()?.attention === 'needs_input' ? 'Reply to agent…' : 'Message agent…'
+                }
+                value={inputText()}
+                onInput={(e) => {
+                  setInputText(e.currentTarget.value);
+                  setSent(false);
+                }}
+                disabled={sending()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+                    e.preventDefault();
+                    void handleSend();
+                  }
+                }}
+              />
+              <button
+                class="mobile-button primary"
+                disabled={!inputText().trim() || sending() || status() !== 'connected'}
+                onClick={() => void handleSend()}
+              >
+                {sending() ? 'Sending…' : canControl() ? 'Send' : 'Authorize'}
+              </button>
+            </div>
+            <div class="mobile-composer-tools">
+              <button
+                class="mobile-button quiet"
+                aria-expanded={showKeys()}
+                aria-controls="terminal-keys"
+                onClick={() => setShowKeys((v) => !v)}
+              >
+                Keys {showKeys() ? '⌃' : '⌄'}
+              </button>
+              <Show when={nextTask()}>
+                {(next) => (
+                  <button
+                    class="mobile-button quiet"
+                    aria-label={`Next task needing you: ${next().taskName}`}
+                    onClick={() => props.onNextTask(next().taskId)}
+                  >
+                    Next task →
+                  </button>
+                )}
+              </Show>
+            </div>
+            <Show when={inputText().length >= 3600}>
+              <p class="muted" role="status">
+                {4000 - inputText().length} characters remaining
+              </p>
+            </Show>
+            <Show when={sent()}>
+              <p class="muted mobile-success" role="status">
+                Accepted by terminal
+              </p>
+            </Show>
+            <Show when={showKeys()}>
+              <div id="terminal-keys" class="mobile-keys" role="group" aria-label="Terminal keys">
+                <For
+                  each={[
+                    { label: 'Enter', name: 'Enter', data: '\r' },
+                    { label: 'Tab', name: 'Tab', data: '\t' },
+                    { label: '↑', name: 'Arrow up', data: '\x1b[A' },
+                    { label: '↓', name: 'Arrow down', data: '\x1b[B' },
+                    { label: 'Esc', name: 'Escape', data: '\x1b' },
+                    { label: 'Ctrl+C', name: 'Interrupt agent (Control C)', data: '\x03' },
+                  ]}
+                >
+                  {(key) => (
+                    <button
+                      class="mobile-button"
+                      aria-label={key.name}
+                      disabled={!canControl() || sending()}
+                      onClick={() => void quickKey(key.data)}
+                    >
+                      {key.label}
+                    </button>
+                  )}
+                </For>
+                <Show when={view() === 'terminal'}>
+                  <button
+                    class="mobile-button"
+                    aria-label="Smaller terminal text"
+                    disabled={fontSize() <= 12}
+                    onClick={() => {
+                      setFontSize((s) => s - 1);
+                      writeLocal('terminal-font', String(fontSize()));
+                      fitTerminal();
+                    }}
+                  >
+                    A−
+                  </button>
+                  <button
+                    class="mobile-button"
+                    aria-label="Larger terminal text"
+                    disabled={fontSize() >= 24}
+                    onClick={() => {
+                      setFontSize((s) => s + 1);
+                      writeLocal('terminal-font', String(fontSize()));
+                      fitTerminal();
+                    }}
+                  >
+                    A+
+                  </button>
+                </Show>
+              </div>
+            </Show>
+          </div>
+        }
+      >
+        <footer class="mobile-footer mobile-notes-footer">
+          <span class="muted" role="status">
+            {notesSaved()
+              ? 'Saved to your computer'
+              : notesDirty()
+                ? 'Draft saved on this phone'
+                : ''}
+          </span>
+          <button
+            class="mobile-button primary"
+            disabled={notesSaving() || notesLoading() || !notesDirty() || status() !== 'connected'}
+            onClick={() => void handleSaveNotes()}
+          >
+            {notesSaving() ? 'Saving…' : canControl() ? 'Save notes' : 'Authorize'}
+          </button>
+        </footer>
+      </Show>
     </div>
   );
 }

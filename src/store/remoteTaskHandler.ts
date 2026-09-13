@@ -40,7 +40,13 @@ function handleGetProjects(req: RendererRequest): void {
   reply(
     req.reqId,
     true,
-    codeProjects().map((p) => ({ id: p.id, name: p.name })),
+    codeProjects().map((p) => ({
+      id: p.id,
+      name: p.name,
+      agentName:
+        (store.availableAgents.find((a) => a.id === store.lastAgentId) ?? store.availableAgents[0])
+          ?.name ?? '',
+    })),
   );
 }
 

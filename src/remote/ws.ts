@@ -1,14 +1,37 @@
 import { createSignal } from 'solid-js';
+import { createStore, reconcile } from 'solid-js/store';
 import { getToken, clearToken, getPairedToken, clearPairedToken } from './auth';
 import type { ServerMessage, RemoteAgent } from '../../electron/remote/protocol';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
-const [agents, setAgents] = createSignal<RemoteAgent[]>([]);
+// Keep each agent's identity across snapshots so polling doesn't remount cards
+// or restart detail effects that only depend on the task ID.
+const [agentState, setAgentState] = createStore<{ list: RemoteAgent[] }>({ list: [] });
+const agents = () => agentState.list;
 const [status, setStatus] = createSignal<ConnectionStatus>('disconnected');
+const [needsConnection, setNeedsConnection] = createSignal(false);
+const [canControl, setCanControl] = createSignal(false);
+const pendingInputs = new Map<
+  string,
+  { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
+>();
+let nextInputId = 0;
+
+function failPendingInputs(): void {
+  for (const pending of pendingInputs.values()) {
+    clearTimeout(pending.timer);
+    pending.reject(
+      new Error(
+        'Connection interrupted. Your message may have reached the terminal. Check the output before retrying.',
+      ),
+    );
+  }
+  pendingInputs.clear();
+}
 
 type OutputListener = (data: string) => void;
-type ScrollbackListener = (data: string, cols: number) => void;
+type ScrollbackListener = (data: string, cols: number, rows: number) => void;
 const outputListeners = new Map<string, Set<OutputListener>>();
 const scrollbackListeners = new Map<string, Set<ScrollbackListener>>();
 
@@ -27,7 +50,7 @@ function selectAuthToken(): { token: string; kind: 'paired' | 'mobile' } | null 
   return mobile ? { token: mobile, kind: 'mobile' } : null;
 }
 
-export { agents, status };
+export { agents, status, needsConnection, canControl };
 
 export function connect(): void {
   // Allow reconnect when existing socket is closing (not just null)
@@ -45,14 +68,18 @@ export function connect(): void {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = `${protocol}//${window.location.host}/ws`;
 
+  setNeedsConnection(false);
+  setCanControl(false);
   setStatus('connecting');
   ws = new WebSocket(url);
+  const socket = ws;
 
   ws.onopen = () => {
+    if (ws !== socket) return;
     // Authenticate via first message instead of URL query to avoid
     // token leaking in proxy logs or browser history.
     send({ type: 'auth', token: auth.token });
-    setStatus('connected');
+
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -64,6 +91,7 @@ export function connect(): void {
   };
 
   ws.onmessage = (event) => {
+    if (ws !== socket) return;
     let msg: ServerMessage;
     try {
       msg = JSON.parse(String(event.data));
@@ -74,8 +102,20 @@ export function connect(): void {
 
     switch (msg.type) {
       case 'agents':
-        setAgents(msg.list);
+        setStatus('connected');
+        setCanControl(authTokenKind === 'paired');
+        setAgentState('list', reconcile(msg.list, { key: 'agentId' }));
         break;
+
+      case 'input-result': {
+        const pending = pendingInputs.get(msg.requestId);
+        if (!pending) break;
+        clearTimeout(pending.timer);
+        pendingInputs.delete(msg.requestId);
+        if (msg.ok) pending.resolve();
+        else pending.reject(new Error(msg.error ?? 'Could not send. Your draft has been kept.'));
+        break;
+      }
 
       case 'output': {
         const listeners = outputListeners.get(msg.agentId);
@@ -85,23 +125,25 @@ export function connect(): void {
 
       case 'scrollback': {
         const listeners = scrollbackListeners.get(msg.agentId);
-        listeners?.forEach((fn) => fn(msg.data, msg.cols));
+        listeners?.forEach((fn) => fn(msg.data, msg.cols, msg.rows ?? 24));
         break;
       }
 
       case 'status':
-        setAgents((prev) =>
-          prev.map((a) =>
-            a.agentId === msg.agentId ? { ...a, status: msg.status, exitCode: msg.exitCode } : a,
-          ),
-        );
+        setAgentState('list', (a) => a.agentId === msg.agentId, {
+          status: msg.status,
+          exitCode: msg.exitCode,
+        });
         break;
     }
   };
 
   ws.onclose = (event) => {
+    if (ws !== socket) return;
     ws = null;
     setStatus('disconnected');
+    setCanControl(false);
+    failPendingInputs();
     // 4001 = server rejected auth — the token is stale (the desktop restarted
     // Remote Access, which rotates every token). A stale paired token falls
     // back to the QR-code token so the phone keeps watching and only loses
@@ -115,23 +157,17 @@ export function connect(): void {
         return;
       }
       clearToken();
-      window.location.reload();
+      setNeedsConnection(true);
       return;
     }
+    if (event.code === 4003) clearPairedToken();
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 3000);
   };
 
   ws.onerror = () => {
-    ws?.close();
+    if (ws === socket) socket.close();
   };
-}
-
-/** True when the open socket authenticated with the paired token, i.e. the
- *  server will accept `input` from it. A paired token stored by another tab
- *  does not count until this socket reconnects with it. */
-export function socketCanType(): boolean {
-  return status() === 'connected' && authTokenKind === 'paired';
 }
 
 /** Drop the current socket and connect again with the best available token. */
@@ -149,17 +185,42 @@ export function reconnect(): void {
     ws = null;
   }
   setStatus('disconnected');
+  setCanControl(false);
+  failPendingInputs();
   connect();
 }
 
-export function send(msg: Record<string, unknown>): void {
+function send(msg: Record<string, unknown>): void {
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
   }
 }
 
-export function sendInput(agentId: string, data: string): void {
-  send({ type: 'input', agentId, data });
+export function sendInput(agentId: string, data: string, submit = false): Promise<void> {
+  if (!canControl() || ws?.readyState !== WebSocket.OPEN) {
+    return Promise.reject(new Error('Reconnect before sending. Your draft has been kept.'));
+  }
+  if (data.length > 4096)
+    return Promise.reject(new Error('This message is too long. Shorten it and try again.'));
+  const requestId = String(++nextInputId);
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingInputs.delete(requestId);
+      reject(
+        new Error(
+          'Delivery could not be confirmed. Check the output before retrying; your draft has been kept.',
+        ),
+      );
+    }, 10000);
+    pendingInputs.set(requestId, { resolve, reject, timer });
+    try {
+      send({ type: 'input', agentId, data, requestId, submit });
+    } catch {
+      clearTimeout(timer);
+      pendingInputs.delete(requestId);
+      reject(new Error('Could not send. Your draft has been kept.'));
+    }
+  });
 }
 
 export function subscribeAgent(agentId: string): void {

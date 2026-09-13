@@ -41,7 +41,7 @@ import { readCoverageSummary } from './coverage.js';
 import { loadEslintQualityFindings } from './eslint-quality-findings.js';
 import { buildVerifyEnv, validateVerifyCommand, verificationRunner } from './verify.js';
 import { startRemoteServer, getMCPLogs, type RemoteProject } from '../remote/server.js';
-import type { RemoteAttentionState } from '../remote/protocol.js';
+import type { RemoteAttentionState, RemoteAgent } from '../remote/protocol.js';
 import { atomicWriteFileSync } from '../mcp/atomic.js';
 import { getUserDataDir } from '../user-data-dir.js';
 import { buildMcpLaunchArgs } from '../mcp/agent-args.js';
@@ -414,6 +414,8 @@ function createThrottledForwarder(
  */
 export function registerAllHandlers(win: BrowserWindow): void {
   // --- Remote access state ---
+  // Keep development phone access and coordinator ports separate from the installed app.
+  const defaultRemotePort = app.isPackaged ? 7777 : 8777;
   let remoteServer: Awaited<ReturnType<typeof startRemoteServer>> | null = null;
   const taskNames = new Map<string, string>();
   // Renderer-derived per-task attention (needs input, working, ready, …), pushed
@@ -421,6 +423,10 @@ export function registerAllHandlers(win: BrowserWindow): void {
   // the same richer status as the desktop. The renderer owns this computation
   // (it depends on reactive terminal/git/steps state), so main just caches it.
   const taskAttention = new Map<string, RemoteAttentionState>();
+  const taskContext = new Map<
+    string,
+    Pick<RemoteAgent, 'projectName' | 'agentName' | 'lastLine'>
+  >();
 
   // --- MCP coordinator (lazy — only loaded when coordinator mode is enabled) ---
   type CoordinatorType = import('../mcp/coordinator.js').Coordinator;
@@ -1267,6 +1273,7 @@ export function registerAllHandlers(win: BrowserWindow): void {
     setTaskNotes: (taskId: string, notes: string) =>
       callRenderer<{ ok: boolean }>(IPC.Remote_SetNotesRequest, { taskId, notes }).then(() => {}),
     getTaskAttention: (taskId: string): RemoteAttentionState => taskAttention.get(taskId) ?? 'idle',
+    getTaskContext: (taskId: string) => taskContext.get(taskId),
   };
 
   const VALID_ATTENTION: ReadonlySet<RemoteAttentionState> = new Set([
@@ -1281,18 +1288,42 @@ export function registerAllHandlers(win: BrowserWindow): void {
   // Renderer pushes the full per-task attention snapshot whenever it changes.
   // We replace the cache and re-broadcast the agent list so connected phones
   // update immediately (attention changes don't fire PTY spawn/exit events).
-  ipcMain.handle(IPC.Remote_UpdateTaskStatus, (_e, args: { statuses?: Record<string, string> }) => {
-    const statuses = args?.statuses;
-    if (!statuses || typeof statuses !== 'object') return;
-    taskAttention.clear();
-    for (const [taskId, value] of Object.entries(statuses)) {
-      if (typeof taskId === 'string' && VALID_ATTENTION.has(value as RemoteAttentionState)) {
-        taskAttention.set(taskId, value as RemoteAttentionState);
+  ipcMain.handle(
+    IPC.Remote_UpdateTaskStatus,
+    (
+      _e,
+      args: {
+        statuses?: Record<string, string>;
+        contexts?: Record<
+          string,
+          { projectName?: unknown; agentName?: unknown; lastLine?: unknown }
+        >;
+      },
+    ) => {
+      const statuses = args?.statuses;
+      if (!statuses || typeof statuses !== 'object') return;
+      taskAttention.clear();
+      taskContext.clear();
+      if (args.contexts && typeof args.contexts === 'object') {
+        for (const [taskId, context] of Object.entries(args.contexts)) {
+          if (!context || typeof context !== 'object') continue;
+          taskContext.set(taskId, {
+            projectName:
+              typeof context.projectName === 'string' ? context.projectName.slice(0, 200) : '',
+            agentName: typeof context.agentName === 'string' ? context.agentName.slice(0, 200) : '',
+            lastLine: typeof context.lastLine === 'string' ? context.lastLine.slice(0, 300) : '',
+          });
+        }
       }
-    }
-    // Only bother rebroadcasting when a phone could be listening.
-    if (remoteServer) notifyAgentListChanged();
-  });
+      for (const [taskId, value] of Object.entries(statuses)) {
+        if (typeof taskId === 'string' && VALID_ATTENTION.has(value as RemoteAttentionState)) {
+          taskAttention.set(taskId, value as RemoteAttentionState);
+        }
+      }
+      // Only bother rebroadcasting when a phone could be listening.
+      if (remoteServer) notifyAgentListChanged();
+    },
+  );
 
   ipcMain.handle(IPC.GeneratePairingPin, () => {
     if (!remoteServer) throw new Error('Remote server is not running');
@@ -1356,7 +1387,10 @@ export function registerAllHandlers(win: BrowserWindow): void {
 
     // Remote access is an explicit user action — bind to all interfaces so WiFi/Tailscale clients
     // can reach the SPA. Coordinator MCP-only mode uses 127.0.0.1 by default.
-    remoteServer = await startRemoteServer({ port: args.port ?? 7777, ...remoteServerOpts });
+    remoteServer = await startRemoteServer({
+      port: args.port ?? defaultRemotePort,
+      ...remoteServerOpts,
+    });
     remoteServerRequestedManually = true;
     remoteServerPendingStop = false;
     return {
@@ -1715,21 +1749,25 @@ export function registerAllHandlers(win: BrowserWindow): void {
               'LAN hosts. Access is token-protected. Consider firewall rules on untrusted networks.',
           );
         }
-        remoteServer = await startRemoteServerOnFreePort(7777, 7800, {
-          host: bindHost,
-          staticDir: distRemote,
-          getTaskName: (taskId: string) => taskNames.get(taskId) ?? taskId,
-          getAgentStatus: (agentId: string) => {
-            const meta = getAgentMeta(agentId);
-            return {
-              status: meta ? ('running' as const) : ('exited' as const),
-              exitCode: null,
-              lastLine: '',
-            };
+        remoteServer = await startRemoteServerOnFreePort(
+          defaultRemotePort,
+          defaultRemotePort + 23,
+          {
+            host: bindHost,
+            staticDir: distRemote,
+            getTaskName: (taskId: string) => taskNames.get(taskId) ?? taskId,
+            getAgentStatus: (agentId: string) => {
+              const meta = getAgentMeta(agentId);
+              return {
+                status: meta ? ('running' as const) : ('exited' as const),
+                exitCode: null,
+                lastLine: '',
+              };
+            },
+            getCoordinator: () => coordinator,
+            ...mobileTaskBridge,
           },
-          getCoordinator: () => coordinator,
-          ...mobileTaskBridge,
-        });
+        );
         remoteServerStartedForMcp = true;
       }
 

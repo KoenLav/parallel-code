@@ -20,6 +20,7 @@ vi.mock('../ipc/pty.js', () => ({
   getActiveAgentIds: vi.fn(() => []),
   getAgentMeta: vi.fn(() => null),
   getAgentCols: vi.fn(() => 80),
+  getAgentRows: vi.fn(() => 24),
   onPtyEvent: vi.fn(() => vi.fn()), // returns an unsubscribe fn
 }));
 
@@ -351,5 +352,121 @@ describe('coordinator token over WebSocket', () => {
       expect(pty.writeToAgent).toHaveBeenCalledWith('agent-1', 'hello');
     });
     ws.close();
+  });
+});
+
+describe('acknowledged phone messages', () => {
+  function nextMessage(ws: WebSocket): Promise<Record<string, unknown>> {
+    return new Promise((resolve) => ws.once('message', (raw) => resolve(JSON.parse(String(raw)))));
+  }
+
+  it('acknowledges only after both pasted text and Enter reach the PTY', async () => {
+    const ws = await connectAndAuth(await pair());
+    const result = nextMessage(ws);
+    ws.send(
+      JSON.stringify({
+        type: 'input',
+        agentId: 'agent-1',
+        data: 'hello\nworld',
+        requestId: 'reply-1',
+        submit: true,
+      }),
+    );
+    expect(await result).toEqual({ type: 'input-result', requestId: 'reply-1', ok: true });
+    expect(pty.writeToAgent).toHaveBeenNthCalledWith(1, 'agent-1', 'hello\nworld');
+    expect(pty.writeToAgent).toHaveBeenNthCalledWith(2, 'agent-1', '\r');
+    ws.close();
+  });
+
+  it('reports a missing agent instead of claiming delivery', async () => {
+    vi.mocked(pty.writeToAgent).mockImplementationOnce(() => {
+      throw new Error('Agent not found');
+    });
+    const ws = await connectAndAuth(await pair());
+    const result = nextMessage(ws);
+    ws.send(
+      JSON.stringify({
+        type: 'input',
+        agentId: 'gone',
+        data: 'hello',
+        requestId: 'reply-2',
+        submit: true,
+      }),
+    );
+    expect(await result).toMatchObject({ type: 'input-result', requestId: 'reply-2', ok: false });
+    expect(pty.writeToAgent).toHaveBeenCalledTimes(1);
+    ws.close();
+  });
+
+  it('reports a partial submission if the agent exits before Enter', async () => {
+    vi.mocked(pty.writeToAgent)
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => {
+        throw new Error('gone');
+      });
+    const ws = await connectAndAuth(await pair());
+    const result = nextMessage(ws);
+    ws.send(
+      JSON.stringify({
+        type: 'input',
+        agentId: 'gone',
+        data: 'hello',
+        requestId: 'reply-3',
+        submit: true,
+      }),
+    );
+    expect(await result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Check the terminal'),
+    });
+    ws.close();
+  });
+
+  it('does not interleave two phones submitting into the same prompt', async () => {
+    const ws1 = await connectAndAuth(await pair());
+    const ws2 = await connectAndAuth(await pair());
+    const accepted = nextMessage(ws1);
+    const rejected = nextMessage(ws2);
+    const text = 'line\n'.repeat(40);
+    ws1.send(
+      JSON.stringify({
+        type: 'input',
+        agentId: 'agent-1',
+        data: text,
+        requestId: 'first',
+        submit: true,
+      }),
+    );
+    await vi.waitFor(() => expect(pty.writeToAgent).toHaveBeenCalledWith('agent-1', text));
+    ws2.send(
+      JSON.stringify({
+        type: 'input',
+        agentId: 'agent-1',
+        data: 'second',
+        requestId: 'second',
+        submit: true,
+      }),
+    );
+    expect(await rejected).toMatchObject({ requestId: 'second', ok: false });
+    expect(await accepted).toMatchObject({ requestId: 'first', ok: true });
+    expect(pty.writeToAgent).not.toHaveBeenCalledWith('agent-1', 'second');
+    ws1.close();
+    ws2.close();
+  });
+
+  it('does not give view-only phones write access through acknowledged submission', async () => {
+    const ws = await connectAndAuth(mobileToken);
+    const closed = waitForClose(ws);
+    ws.send(
+      JSON.stringify({
+        type: 'input',
+        agentId: 'agent-1',
+        data: 'hello',
+        requestId: 'no-access',
+        submit: true,
+      }),
+    );
+    expect(await closed).toBe(4003);
+    expect(pty.writeToAgent).not.toHaveBeenCalled();
   });
 });
