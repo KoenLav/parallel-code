@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from 'child_process';
 import type { BrowserWindow } from 'electron';
 import { validateCommand, ENV_BLOCK_LIST } from './pty.js';
 import { loadEnvFile } from './env-file.js';
+import { ASK_CODE_MODELS } from '../shared/ask-code-models.js';
+import { CHANGE_TOUR_TIMEOUT_MS, CHANGE_TOUR_PROMPT_LIMIT } from '../shared/change-tour-limits.js';
 import {
   askAboutCodeMinimax,
   cancelAskAboutCodeMinimax,
@@ -24,6 +26,7 @@ interface AskCodeRequest {
   prompt: string;
   cwd: string;
   provider?: AskCodeProvider;
+  purpose?: 'tour';
   /** Env file configured for the Claude Code agent, if any. */
   envFile?: string;
 }
@@ -39,11 +42,12 @@ export function askAboutCode(win: BrowserWindow, args: AskCodeRequest): void {
   // Route to MiniMax backend when configured
   if (provider === 'minimax') {
     activeRequests.cancel(requestId);
-    askAboutCodeMinimax(win, { requestId, channelId, prompt });
+    askAboutCodeMinimax(win, { requestId, channelId, prompt, purpose: args.purpose });
     return;
   }
 
-  assertPromptWithinLimit(prompt);
+  const isTour = args.purpose === 'tour';
+  assertPromptWithinLimit(prompt, isTour ? CHANGE_TOUR_PROMPT_LIMIT : undefined);
   assertCanStart(activeRequests, requestId);
 
   // Cancel any existing request with the same ID
@@ -72,22 +76,24 @@ export function askAboutCode(win: BrowserWindow, args: AskCodeRequest): void {
     'claude',
     [
       '-p',
-      prompt,
+      ...(isTour ? [] : [prompt]),
       '--output-format',
       'text',
       '--model',
-      'sonnet',
+      ASK_CODE_MODELS.claude,
       // Empty string disables all tool usage for quick Q&A responses
       '--tools',
       '',
       '--no-session-persistence',
       '--append-system-prompt',
-      'Answer concisely about the selected code. Use markdown.',
+      isTour
+        ? 'Return exactly one JSON object matching the requested tour schema. No markdown, commentary, or additional JSON objects.'
+        : 'Answer concisely about the selected code. Use markdown.',
     ],
     {
       cwd,
       env: filteredEnv,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [isTour ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     },
   );
 
@@ -97,8 +103,13 @@ export function askAboutCode(win: BrowserWindow, args: AskCodeRequest): void {
     }
   };
 
-  const session = AskCodeSession.start(activeRequests, requestId, proc, send, (request) =>
-    request.kill('SIGTERM'),
+  const session = AskCodeSession.start(
+    activeRequests,
+    requestId,
+    proc,
+    send,
+    (request) => request.kill('SIGTERM'),
+    args.purpose === 'tour' ? CHANGE_TOUR_TIMEOUT_MS : undefined,
   );
 
   proc.stdout?.on('data', (chunk: Buffer) => {
@@ -123,6 +134,18 @@ export function askAboutCode(win: BrowserWindow, args: AskCodeRequest): void {
       send({ type: 'done', exitCode: 1 });
     }
   });
+
+  if (isTour) {
+    // Large diffs exceed OS argument-size limits; Claude supports piped input.
+    proc.stdin?.on('error', (err: Error) => {
+      if (!session.complete()) return;
+      session.cleanup();
+      send({ type: 'error', text: `Could not send tour prompt: ${err.message}` });
+      send({ type: 'done', exitCode: 1 });
+      proc.kill('SIGTERM');
+    });
+    proc.stdin?.end(prompt);
+  }
 }
 
 export function cancelAskAboutCode(requestId: string): void {

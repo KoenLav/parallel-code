@@ -51,6 +51,8 @@ export interface ReviewScrollTarget {
   filePath: string;
   startLine: number;
   endLine?: number;
+  /** Defaults to the new side for review annotations and findings. */
+  side?: 'old' | 'new';
 }
 
 export interface ReviewContextValue {

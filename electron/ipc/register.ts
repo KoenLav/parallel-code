@@ -933,6 +933,8 @@ export function registerAllHandlers(win: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC.AskAboutCode, (_e, args) => {
+    if (args.purpose !== undefined && args.purpose !== 'tour')
+      throw new Error('Invalid code Q&A purpose');
     assertString(args.requestId, 'requestId');
     assertString(args.prompt, 'prompt');
     assertString(args.onOutput?.__CHANNEL_ID__, 'channelId');
@@ -941,6 +943,7 @@ export function registerAllHandlers(win: BrowserWindow): void {
       typeof args.provider === 'string' ? args.provider : undefined;
     assertOptionalString(args.envFile, 'envFile');
     askAboutCode(win, {
+      purpose: args.purpose,
       requestId: args.requestId,
       channelId: args.onOutput.__CHANNEL_ID__,
       prompt: args.prompt,

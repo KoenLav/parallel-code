@@ -29,6 +29,8 @@ interface ScrollingDiffViewProps {
   files: FileDiff[];
   scrollToPath: string | null;
   worktreePath: string;
+  /** Captured tours must not fetch context from the live worktree. */
+  allowContextExpansion?: boolean;
   /** Base branch for diff comparison (e.g. 'main', 'develop'). Undefined = auto-detect. */
   baseBranch?: string;
   searchQuery?: string;
@@ -82,19 +84,21 @@ interface HighlightRange {
   filePath: string;
   startLine: number;
   endLine: number;
+  side?: 'old' | 'new';
 }
 
 function isLineHighlighted(
   range: HighlightRange | null | undefined,
   filePath: string,
-  newLine: number | null,
+  line: DiffLine,
 ): boolean {
+  const lineNumber = range?.side === 'old' ? line.oldLine : line.newLine;
   return (
     !!range &&
     range.filePath === filePath &&
-    newLine !== null &&
-    newLine >= range.startLine &&
-    newLine <= range.endLine
+    lineNumber !== null &&
+    lineNumber >= range.startLine &&
+    lineNumber <= range.endLine
   );
 }
 
@@ -165,6 +169,7 @@ function DiffLineView(props: {
     <div
       data-file-path={props.filePath}
       data-new-line={props.line.newLine ?? undefined}
+      data-old-line={props.line.oldLine ?? undefined}
       data-line-type={props.line.type}
       style={{
         display: 'grid',
@@ -271,7 +276,7 @@ function HunkView(props: {
             highlightedHtml={highlighted()?.[i()] ?? null}
             searchQuery={props.searchQuery}
             filePath={props.filePath}
-            highlighted={isLineHighlighted(props.highlightedRange, props.filePath, line.newLine)}
+            highlighted={isLineHighlighted(props.highlightedRange, props.filePath, line)}
           />
           <Show
             when={
@@ -316,6 +321,7 @@ async function loadContextLines(args: {
 }
 
 function ContextGapView(props: {
+  allowContextExpansion?: boolean;
   range: ContextGapRange;
   lang: string;
   worktreePath: string;
@@ -355,7 +361,7 @@ function ContextGapView(props: {
   }
 
   async function expand() {
-    if (expanded() || loading()) return;
+    if (props.allowContextExpansion === false || expanded() || loading()) return;
     setLoading(true);
     try {
       const gapLines =
@@ -380,6 +386,7 @@ function ContextGapView(props: {
   }
 
   onMount(async () => {
+    if (props.allowContextExpansion === false) return;
     const count = getContextGapLineCount(props.range);
     if (count !== null) {
       if (count > 0 && count <= MIN_COLLAPSE_LINES) await expand();
@@ -424,14 +431,18 @@ function ContextGapView(props: {
               'border-top': props.borderTop ? `1px solid ${theme.borderSubtle}` : undefined,
               'border-bottom': props.borderBottom ? `1px solid ${theme.borderSubtle}` : undefined,
               'user-select': 'none',
-              cursor: 'pointer',
+              cursor: props.allowContextExpansion === false ? 'default' : 'pointer',
             }}
           >
-            {loading()
-              ? 'Loading...'
-              : hiddenCount() !== null
-                ? `${hiddenCount()} lines hidden`
-                : '\u00B7\u00B7\u00B7'}
+            {props.allowContextExpansion === false
+              ? hiddenCount() !== null
+                ? `${hiddenCount()} lines not captured`
+                : 'Additional context not captured'
+              : loading()
+                ? 'Loading...'
+                : hiddenCount() !== null
+                  ? `${hiddenCount()} lines hidden`
+                  : '\u00B7\u00B7\u00B7'}
           </div>
         }
       >
@@ -442,7 +453,7 @@ function ContextGapView(props: {
               highlightedHtml={highlighted()?.[i()] ?? null}
               searchQuery={props.searchQuery}
               filePath={props.filePath}
-              highlighted={isLineHighlighted(props.highlightedRange, props.filePath, line.newLine)}
+              highlighted={isLineHighlighted(props.highlightedRange, props.filePath, line)}
             />
           )}
         </For>
@@ -452,6 +463,7 @@ function ContextGapView(props: {
 }
 
 function FileSection(props: {
+  allowContextExpansion?: boolean;
   file: FileDiff;
   worktreePath: string;
   baseBranch?: string;
@@ -642,6 +654,7 @@ function FileSection(props: {
           >
             <Show when={props.file.hunks.length > 0 && props.file.status === 'M'}>
               <ContextGapView
+                allowContextExpansion={props.allowContextExpansion}
                 range={{
                   startLine: 1,
                   endLine: props.file.hunks[0].newStart,
@@ -661,6 +674,7 @@ function FileSection(props: {
                 <>
                   <Show when={hunkIdx() > 0 && props.file.status === 'M'}>
                     <ContextGapView
+                      allowContextExpansion={props.allowContextExpansion}
                       range={{
                         startLine:
                           props.file.hunks[hunkIdx() - 1].newStart +
@@ -764,6 +778,7 @@ function FileSection(props: {
             </For>
             <Show when={props.file.hunks.length > 0 && props.file.status === 'M'}>
               <ContextGapView
+                allowContextExpansion={props.allowContextExpansion}
                 range={{
                   startLine:
                     props.file.hunks[props.file.hunks.length - 1].newStart +
@@ -848,6 +863,7 @@ export function ScrollingDiffView(props: ScrollingDiffViewProps) {
           filePath: target.filePath,
           startLine: target.startLine,
           endLine: target.endLine ?? target.startLine,
+          side: target.side,
         }
       : null;
   };
@@ -910,7 +926,7 @@ export function ScrollingDiffView(props: ScrollingDiffViewProps) {
       navigationLineFrame = requestAnimationFrame(() => {
         navigationLineFrame = undefined;
         const el = containerRef?.querySelector(
-          `[data-file-path="${CSS.escape(target.filePath)}"][data-new-line="${target.startLine}"]`,
+          `[data-file-path="${CSS.escape(target.filePath)}"][data-${target.side === 'old' ? 'old' : 'new'}-line="${target.startLine}"]`,
         );
         if (el && containerRef) {
           const containerTop = containerRef.getBoundingClientRect().top;
@@ -1036,6 +1052,7 @@ export function ScrollingDiffView(props: ScrollingDiffViewProps) {
       <For each={props.files}>
         {(file) => (
           <FileSection
+            allowContextExpansion={props.allowContextExpansion}
             file={file}
             worktreePath={props.worktreePath}
             baseBranch={props.baseBranch}

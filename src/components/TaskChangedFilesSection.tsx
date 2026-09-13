@@ -13,8 +13,16 @@ import { sf } from '../lib/fontScale';
 import { useFocusRegistration } from '../lib/focus-registration';
 import type { Task } from '../store/types';
 import type { CommitInfo } from '../ipc/types';
+import type { ChangeTourController } from '../lib/create-change-tour';
+import type { ChangeTourScope } from '../lib/change-tour';
+import { ChangeTourButton } from './ChangeTourButton';
 
 interface TaskChangedFilesSectionProps {
+  tour?: ChangeTourController;
+  onTourClick?: () => void;
+  tourDisabled?: boolean;
+  tourScope?: ChangeTourScope;
+  onTourScopeChange?: (scope: ChangeTourScope) => void;
   task: Task;
   isActive: boolean;
   commitList: CommitInfo[];
@@ -167,6 +175,17 @@ export function TaskChangedFilesSection(props: TaskChangedFilesSectionProps) {
           ref={(el) => (changedFilesRef = el)}
         />
       </div>
+      <Show when={props.tour}>
+        {(tour) => (
+          <ChangeTourButton
+            tour={tour()}
+            disabled={props.tourDisabled}
+            scope={props.tourScope}
+            onScopeChange={props.onTourScopeChange}
+            onClick={() => props.onTourClick?.()}
+          />
+        )}
+      </Show>
     </div>
   );
 }

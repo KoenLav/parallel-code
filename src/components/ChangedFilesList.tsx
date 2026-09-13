@@ -23,6 +23,8 @@ import type { ChangedFile, CoverageFileSummary, CoverageSummary } from '../ipc/t
 
 interface ChangedFilesListProps {
   worktreePath: string;
+  /** Fixed inventory when viewing a tour's captured diff. */
+  filesOverride?: ChangedFile[];
   isActive?: boolean;
   panelFocused?: boolean;
   onFileClick?: (file: ChangedFile) => void;
@@ -628,6 +630,12 @@ export function ChangedFilesList(props: ChangedFilesListProps) {
   });
 
   createEffect(() => {
+    const filesOverride = props.filesOverride;
+    if (filesOverride) {
+      setFiles(filesOverride);
+      setCanOpenFilesInEditor(false);
+      return;
+    }
     const path = props.worktreePath;
     const projectRoot = props.projectRoot;
     const branchName = props.branchName;
@@ -810,7 +818,7 @@ export function ChangedFilesList(props: ChangedFilesListProps) {
     const taskBranch = props.branchName;
     const baseBranch = props.baseBranch;
     const selection = props.selectedCommit;
-    if (!repoRoot || isCommitHashSelection(selection)) {
+    if (props.filesOverride || !repoRoot || isCommitHashSelection(selection)) {
       batch(() => {
         setCoverage(null);
         setBaseCoverage(null);

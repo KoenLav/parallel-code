@@ -48,6 +48,8 @@ import { isLandedTaskState } from '../store/landing';
 import { shouldPollTaskCommits } from './task-commit-polling';
 import { devQualityFindingProvider } from './dev-quality-finding-fixture';
 import { createEslintQualityFindingProvider } from '../lib/eslint-quality-findings';
+import { createChangeTour } from '../lib/create-change-tour';
+import { getChangeTourSelection, type ChangeTourScope } from '../lib/change-tour';
 
 interface TaskPanelProps {
   task: Task;
@@ -97,6 +99,31 @@ export function TaskPanel(props: TaskPanelProps) {
   const [diffScrollTarget, setDiffScrollTarget] = createSignal<string | null>(null);
   const [commitList, setCommitList] = createSignal<CommitInfo[]>([]);
   const [selectedCommit, setSelectedCommit] = createSignal<CommitSelection>(null);
+  const tour = createChangeTour();
+  const [tourScope, setTourScope] = createSignal<ChangeTourScope>('auto');
+  const tourBranchName = () =>
+    store.taskGitStatus[props.task.id]?.current_branch ?? props.task.branchName;
+  const tourSelection = createMemo(() =>
+    getChangeTourSelection(tourBranchName(), tourScope(), selectedCommit()),
+  );
+  const [startTour, setStartTour] = createSignal(false);
+  const tourIdentity = createMemo(() =>
+    JSON.stringify([
+      props.task.id,
+      props.task.projectId,
+      props.task.worktreePath,
+      props.task.branchName,
+      props.task.baseBranch,
+      tourBranchName(),
+      tourScope(),
+      tourSelection(),
+    ]),
+  );
+  createEffect(() => {
+    void tourIdentity();
+    tour.reset();
+    setStartTour(false);
+  });
   const [editingProjectId, setEditingProjectId] = createSignal<string | null>(null);
   // Jump-to-step state is a single signal so ↗ can be hidden entirely before
   // TerminalView is ready (otherwise firstIndex would default to 0, showing ↗
@@ -312,7 +339,32 @@ export function TaskPanel(props: TaskPanelProps) {
       commitList={commitList()}
       selectedCommit={selectedCommit()}
       onCommitNavigate={setSelectedCommit}
-      onDiffFileClick={(path) => setDiffScrollTarget(path)}
+      onDiffFileClick={(path) => {
+        setStartTour(false);
+        setDiffScrollTarget(path);
+      }}
+      tour={tour}
+      tourScope={tourScope()}
+      onTourScopeChange={setTourScope}
+      onTourClick={() => {
+        if (tour.stops().length > 0) {
+          setStartTour(true);
+          setDiffScrollTarget('__tour__');
+        } else {
+          void tour.generateForTask({
+            taskName: props.task.name,
+            worktreePath: props.task.worktreePath,
+            projectRoot: getProject(props.task.projectId)?.path,
+            branchName: tourBranchName(),
+            baseBranch: props.task.baseBranch,
+            selectedCommit: selectedCommit(),
+            scope: tourScope(),
+          });
+        }
+      }}
+      tourDisabled={
+        changedFileCount() === 0 && (tourScope() === 'selection' || commitList().length === 0)
+      }
       compact={topStripEmpty()}
       onFileCountChange={setChangedFileCount}
     />
@@ -690,6 +742,8 @@ export function TaskPanel(props: TaskPanelProps) {
           }}
         />
         <DiffViewerDialog
+          tour={tour}
+          startTour={startTour()}
           scrollToFile={diffScrollTarget()}
           taskName={props.task.name}
           worktreePath={props.task.worktreePath}
@@ -697,12 +751,18 @@ export function TaskPanel(props: TaskPanelProps) {
           projectRoot={getProject(props.task.projectId)?.path}
           branchName={props.task.branchName}
           baseBranch={props.task.baseBranch}
-          onClose={() => setDiffScrollTarget(null)}
+          onClose={() => {
+            setDiffScrollTarget(null);
+            setStartTour(false);
+          }}
           taskId={props.task.id}
           agentId={selectedAgentId()}
           commitList={commitList()}
-          selectedCommit={selectedCommit()}
-          onCommitNavigate={setSelectedCommit}
+          selectedCommit={startTour() ? tourSelection() : selectedCommit()}
+          onCommitNavigate={(selection) => {
+            setStartTour(false);
+            setSelectedCommit(selection);
+          }}
           gitIsolation={props.task.gitIsolation}
           findingProvider={devQualityFindingProvider ?? eslintQualityFindingProvider}
         />

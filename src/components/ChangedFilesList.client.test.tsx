@@ -51,6 +51,35 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 describe('ChangedFilesList coverage inventory fallbacks', () => {
+  it('uses a tour inventory without polling live files or coverage', () => {
+    const file: ChangedFile = {
+      path: 'captured.ts',
+      status: 'M',
+      lines_added: 1,
+      lines_removed: 1,
+      committed: false,
+    };
+    const onFileClick = vi.fn();
+    const container = document.createElement('div');
+    document.body.append(container);
+    disposers.push(
+      render(
+        () => (
+          <ChangedFilesList
+            worktreePath="/task"
+            isActive
+            filesOverride={[file]}
+            onFileClick={onFileClick}
+          />
+        ),
+        container,
+      ),
+    );
+    expect(container.textContent).toContain('captured.ts');
+    (container.querySelector('.file-row') as HTMLElement).click();
+    expect(onFileClick).toHaveBeenCalledWith(file);
+    expect(invoke).not.toHaveBeenCalled();
+  });
   it.each(['loading', 'failed'] as const)(
     'suppresses per-file comparison output while inventory is %s',
     async (inventoryState) => {

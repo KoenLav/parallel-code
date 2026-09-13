@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { CHANGE_TOUR_PROMPT_LIMIT } from '../shared/change-tour-limits.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -77,6 +78,39 @@ describe('askAboutCodeMinimax', () => {
     ).toThrow(/Prompt too long/);
   });
 
+  it('accepts a full tour prompt without raising the inline Q&A limit', async () => {
+    const { win, messages } = makeMockWin();
+    const prompt = 'x'.repeat(CHANGE_TOUR_PROMPT_LIMIT);
+    mockFetch.mockResolvedValueOnce(makeStreamResponse('data: [DONE]\n\n'));
+    askAboutCodeMinimax(win, {
+      requestId: 'large-tour',
+      channelId: 'test',
+      prompt,
+      purpose: 'tour',
+    });
+    await waitForDone(messages);
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[1].content).toBe(prompt);
+    expect(body.messages[0].content).toBe(
+      'Return exactly one JSON object matching the requested tour schema. No markdown, commentary, or additional JSON objects.',
+    );
+  });
+
+  it('rejects a tour larger than its dedicated allowance before fetching', () => {
+    const { win } = makeMockWin();
+    expect(() =>
+      askAboutCodeMinimax(win, {
+        requestId: 'too-large-tour',
+        channelId: 'test',
+        prompt: 'x'.repeat(CHANGE_TOUR_PROMPT_LIMIT + 1),
+        purpose: 'tour',
+      }),
+    ).toThrow(/Prompt too long/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('sends chunk messages for each SSE delta', async () => {
     const { win, messages } = makeMockWin();
 
@@ -120,6 +154,28 @@ describe('askAboutCodeMinimax', () => {
 
     const doneMsgs = messages.filter((m) => (m as Record<string, unknown>).type === 'done');
     expect((doneMsgs[0] as Record<string, unknown>).exitCode).toBe(1);
+  });
+
+  it('finishes on the SSE done marker even when the connection remains open', async () => {
+    const { win, messages } = makeMockWin();
+    const cancel = vi.fn();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(sseChunk('Complete answer') + 'data: [DONE]\n\n'),
+        );
+      },
+      cancel,
+    });
+    mockFetch.mockResolvedValueOnce(new Response(stream, { status: 200 }));
+    askAboutCodeMinimax(win, { requestId: 'done-open', channelId: 'done-open', prompt: 'Explain' });
+    try {
+      await waitForDone(messages, 200);
+      expect(messages).toContainEqual({ type: 'done', exitCode: 0, cancelled: false });
+      expect(cancel).toHaveBeenCalled();
+    } finally {
+      cancelAskAboutCodeMinimax('done-open');
+    }
   });
 
   it('sends error message when fetch rejects', async () => {

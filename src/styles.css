@@ -1130,6 +1130,25 @@ button {
     box-shadow 0.16s ease;
 }
 
+.review-control {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.review-control:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 10%, var(--bg-elevated));
+}
+
+.review-control:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 textarea::placeholder {
   color: color-mix(in srgb, var(--fg-subtle) 65%, transparent);
 }
