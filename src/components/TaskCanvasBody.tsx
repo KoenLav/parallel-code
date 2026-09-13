@@ -1,7 +1,7 @@
 import { Show, createSignal } from 'solid-js';
 import { theme, sectionLabelStyle } from '../lib/theme';
 import { sf } from '../lib/fontScale';
-import type { CanvasSelection } from '../lib/milkdown';
+import type { CanvasSelection } from '../lib/live-markdown';
 import { IconButton } from './IconButton';
 import { CloseIcon } from './icons';
 import { TaskCanvasEditor } from './TaskCanvasEditor';
@@ -17,7 +17,7 @@ export interface TaskCanvasBodyProps {
   editorRef: (api: CanvasEditorApi) => void;
   /** False while the agent cannot take a prompt (asking a question, gone). */
   canSend: boolean;
-  onSend: (instruction: string, selection: CanvasSelection) => Promise<void>;
+  onSend: (instruction: string, selection: CanvasSelection) => Promise<boolean>;
 }
 
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
@@ -35,9 +35,10 @@ export function TaskCanvasBody(props: TaskCanvasBodyProps) {
     if (sending() || !props.canSend || !passage) return;
     setSending(true);
     try {
-      await props.onSend(instruction(), passage);
-      setInstruction('');
-      setSelection(null);
+      if (await props.onSend(instruction(), passage)) {
+        setInstruction('');
+        setSelection(null);
+      }
     } finally {
       setSending(false);
     }

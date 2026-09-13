@@ -95,7 +95,7 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
       return;
     }
     if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    // ProseMirror prevents the default for every Escape, including plain editor focus.
+    // Keep Escape as the canvas-level way to leave the editor without discarding edits.
     if (
       e.key === 'Escape' &&
       e.target instanceof HTMLElement &&

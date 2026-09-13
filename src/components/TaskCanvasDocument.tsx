@@ -8,7 +8,7 @@ import { theme } from '../lib/theme';
 import { sf } from '../lib/fontScale';
 import { buildCanvasReference, headingAbove } from '../lib/canvas-reference';
 import { applyBlockWrite } from '../lib/canvas-blocks';
-import type { CanvasSelection } from '../lib/milkdown';
+import type { CanvasSelection } from '../lib/live-markdown';
 import type { DocumentSnapshot } from '../documents/types';
 import type { Task } from '../store/types';
 import { TaskCanvasBody } from './TaskCanvasBody';
@@ -113,24 +113,32 @@ export function TaskCanvasDocument(props: TaskCanvasDocumentProps) {
 
   function reloadFromDisk(): void {
     const disk = snapshot()?.content;
-    if (disk !== undefined) setBase(disk);
+    if (disk !== undefined) {
+      editorApi?.reload(disk);
+      setBase(disk);
+    }
   }
 
-  async function sendPassage(instruction: string, selection: CanvasSelection): Promise<void> {
+  async function sendPassage(instruction: string, selection: CanvasSelection): Promise<boolean> {
     // Flush first so the line numbers point at what the agent will read.
-    await editorApi?.save();
+    if (!editorApi || !(await editorApi.save())) return false;
     const source = base() ?? '';
-    const lines = editorApi?.lineRange(selection.fromBlock, selection.toBlock) ?? null;
     const text = buildCanvasReference({
       documentPath: props.path,
       quote: selection.quote,
       instruction,
-      location: lines ? { ...lines, heading: headingAbove(source, lines.startLine) } : null,
+      location: {
+        startLine: selection.startLine,
+        endLine: selection.endLine,
+        heading: headingAbove(source, selection.startLine),
+      },
     });
     try {
       await sendPrompt(props.task.id, props.agentId, text);
+      return true;
     } catch (e) {
       setError(errMessage(e));
+      return false;
     }
   }
 

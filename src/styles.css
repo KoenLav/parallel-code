@@ -2813,40 +2813,6 @@ body.dragging-task * {
   }
 }
 
-/* ── Canvas editor (Milkdown Crepe): its theme variables follow the look ── */
-.task-canvas-editor .milkdown {
-  --crepe-color-background: var(--task-panel-bg);
-  --crepe-color-on-background: var(--fg);
-  --crepe-color-surface: var(--bg-elevated);
-  --crepe-color-surface-low: var(--bg-input);
-  --crepe-color-on-surface: var(--fg);
-  --crepe-color-on-surface-variant: var(--fg-muted);
-  --crepe-color-outline: var(--fg-muted);
-  --crepe-color-primary: var(--accent);
-  --crepe-color-secondary: var(--bg-selected);
-  --crepe-color-on-secondary: var(--fg);
-  --crepe-color-inverse: var(--fg);
-  --crepe-color-on-inverse: var(--bg-elevated);
-  --crepe-color-inline-code: var(--link);
-  --crepe-color-error: var(--error);
-  --crepe-color-hover: var(--bg-hover);
-  --crepe-color-selected: var(--bg-selected);
-  --crepe-color-inline-area: var(--bg-selected-subtle);
-
-  --crepe-base-font-size: 13px;
-  --crepe-font-title: var(--font-display);
-  --crepe-font-default: var(--font-ui);
-  --crepe-font-code: var(--font-mono);
-
-  --crepe-shadow-1: var(--shadow-soft);
-  --crepe-shadow-2: var(--shadow-soft);
-
-  caret-color: var(--fg);
-
-  min-height: 100%;
-  background: var(--task-panel-bg);
-  color: var(--fg);
-}
 .canvas-tab-strip {
   scrollbar-width: none;
 }
@@ -2854,43 +2820,8 @@ body.dragging-task * {
   background: var(--bg-hover);
 }
 
-/* The canvas sits in a narrow column, so Crepe's page-like spacing is
-   pulled in: the block controls share one vertical gutter, with tighter
-   indents for lists, quotes, code and tables. */
-.task-canvas-editor .milkdown .ProseMirror {
-  padding: 12px 12px 48px 28px;
-}
-.task-canvas-editor .milkdown .milkdown-block-handle {
-  flex-direction: column;
-}
-.task-canvas-editor .milkdown .milkdown-block-handle .operation-item {
-  width: 20px;
-  height: 20px;
-  padding: 2px;
-}
-.task-canvas-editor .milkdown .milkdown-block-handle .operation-item svg {
-  width: 16px;
-  height: 16px;
-}
-.task-canvas-editor .milkdown .milkdown-list-item-block li {
-  gap: 6px;
-}
-.task-canvas-editor .milkdown .milkdown-list-item-block li .label-wrapper,
-.task-canvas-editor .milkdown .milkdown-list-item-block li .label-wrapper .label {
-  width: 20px;
-}
-.task-canvas-editor .milkdown .ProseMirror blockquote {
-  padding-left: 14px;
-}
-.task-canvas-editor .milkdown .ProseMirror blockquote::before {
-  width: 3px;
-}
-.task-canvas-editor .milkdown .milkdown-code-block {
-  padding: 8px 8px 12px;
-}
-.task-canvas-editor .milkdown .milkdown-table-block th,
-.task-canvas-editor .milkdown .milkdown-table-block td {
-  padding: 4px 8px;
+.task-canvas-editor {
+  color: var(--fg);
 }
 
 /* Keep reduced-motion overrides last so class-based rules win by source order. */

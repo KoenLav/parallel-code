@@ -1,9 +1,8 @@
 import { createEffect, on, onCleanup, onMount } from 'solid-js';
-import '@milkdown/crepe/theme/common/style.css';
-import { createCanvasEditor } from '../lib/milkdown';
-import type { CanvasEditor, CanvasSelection } from '../lib/milkdown';
-import { applyBlockWrite, blockLineRange, planBlockWrite } from '../lib/canvas-blocks';
-import type { BlockWrite, EditorBlock } from '../lib/canvas-blocks';
+import { createCanvasEditor } from '../lib/live-markdown';
+import type { CanvasEditor, CanvasSelection } from '../lib/live-markdown';
+import { minimalBlockWrite, normalizeLineEndings } from '../lib/canvas-blocks';
+import type { BlockWrite } from '../lib/canvas-blocks';
 import { isMac } from '../lib/platform';
 
 /** Quiet time after the last keystroke before edits go to disk by themselves. */
@@ -16,9 +15,9 @@ export interface CanvasWrite extends BlockWrite {
 
 export interface CanvasEditorApi {
   /** Flushes unsaved edits; resolves once they are on disk or have failed. */
-  save: () => Promise<void>;
-  /** 1-based source lines of the blocks, or null while edits are unsaved. */
-  lineRange: (fromBlock: number, toBlock: number) => { startLine: number; endLine: number } | null;
+  save: () => Promise<boolean>;
+  /** Replaces the editor state even when it matches an in-flight save. */
+  reload: (source: string) => void;
 }
 
 export interface TaskCanvasEditorProps {
@@ -33,19 +32,15 @@ export interface TaskCanvasEditorProps {
   ref: (api: CanvasEditorApi) => void;
 }
 
-/** The WYSIWYG surface of the canvas: edits are tracked against the source
- *  they started from and written back block by block. */
+/** The live Markdown surface of the canvas, guarded against stale disk writes. */
 export function TaskCanvasEditor(props: TaskCanvasEditorProps) {
   let host: HTMLDivElement | undefined;
   let editor: CanvasEditor | undefined;
-  // The source the editor represents on disk, and how it serialised at that point.
+  // The source the editor represents on disk.
   let loaded = '';
-  let baseBlocks: EditorBlock[] = [];
-  let baseMarkdown = '';
-  let current = '';
+  let pendingSource: string | undefined;
   let dirty = false;
-  let loading = false;
-  let saving = false;
+  let inFlight: Promise<boolean> | undefined;
   let idle: ReturnType<typeof setTimeout> | undefined;
 
   function setDirty(next: boolean): void {
@@ -57,9 +52,6 @@ export function TaskCanvasEditor(props: TaskCanvasEditorProps) {
   function rebase(source: string): void {
     if (!editor) return;
     loaded = source;
-    baseBlocks = editor.blocks();
-    baseMarkdown = editor.markdown();
-    current = baseMarkdown;
     setDirty(false);
   }
 
@@ -68,75 +60,76 @@ export function TaskCanvasEditor(props: TaskCanvasEditorProps) {
     idle = setTimeout(() => void save(), CANVAS_AUTOSAVE_IDLE_MS);
   }
 
-  function onMarkdown(markdown: string): void {
-    if (loading) return;
-    current = markdown;
-    setDirty(markdown !== baseMarkdown);
+  function onChange(matchesSaved: boolean): void {
+    setDirty(!matchesSaved);
     if (dirty) scheduleSave();
     else clearTimeout(idle);
   }
 
-  async function save(): Promise<void> {
+  async function save(): Promise<boolean> {
     clearTimeout(idle);
-    if (!editor || saving || !dirty) return;
-    const editedBlocks = editor.blocks();
-    const whole = editor.markdown();
-    const write = planBlockWrite({
-      source: loaded,
-      sourceBlocks: editor.sourceBlocks(loaded),
-      baseBlocks,
-      editedBlocks,
-      whole,
-    });
-    if (!write) {
-      setDirty(false);
-      return;
+    if (inFlight) {
+      if (!(await inFlight)) return false;
+      return dirty ? save() : true;
     }
-    saving = true;
+    const activeEditor = editor;
+    if (!activeEditor) return false;
+    if (!dirty) return true;
+    const whole = activeEditor.markdown();
+    if (whole === normalizeLineEndings(loaded)) {
+      activeEditor.markSaved(whole);
+      setDirty(false);
+      return true;
+    }
+    const source = loaded;
+    const write = minimalBlockWrite(source, whole);
+    const saved =
+      source.slice(0, write.startOffset) + write.replacement + source.slice(write.endOffset);
+    pendingSource = saved;
+    const operation = (async (): Promise<boolean> => {
+      try {
+        const ok = await props.onSave({ ...write, expectedContent: source });
+        if (!ok) return false;
+        loaded = saved;
+        setDirty(!activeEditor.markSaved(whole));
+        if (dirty) scheduleSave();
+        return true;
+      } finally {
+        pendingSource = undefined;
+      }
+    })();
+    inFlight = operation;
     try {
-      const ok = await props.onSave({ ...write, expectedContent: loaded });
-      if (!ok) return;
-      loaded = applyBlockWrite(loaded, write);
-      baseBlocks = editedBlocks;
-      baseMarkdown = whole;
-      setDirty(current !== baseMarkdown);
-      if (dirty) scheduleSave();
+      return await operation;
     } finally {
-      saving = false;
+      if (inFlight === operation) inFlight = undefined;
     }
   }
 
-  function lineRange(fromBlock: number, toBlock: number) {
-    if (!editor || dirty) return null;
-    return blockLineRange(loaded, editor.sourceBlocks(loaded), fromBlock, toBlock);
+  function reload(source: string): void {
+    if (!editor) return;
+    editor.load(source);
+    rebase(source);
+    props.onSelect(null);
   }
 
   onMount(() => {
     if (!host) return;
     const root = host;
     const initial = props.source;
-    let disposed = false;
-    const ready = createCanvasEditor({
+    editor = createCanvasEditor({
       root,
       defaultValue: initial,
-      placeholder: 'Write, or type / for blocks…',
-      onMarkdown,
+      placeholder: 'Write Markdown…',
+      ariaLabel: `Editor for ${props.documentPath}`,
+      onChange,
       onSelection: (selection) => props.onSelect(selection),
     });
-    // eslint-disable-next-line solid/reactivity -- props.ref is a stable callback, handed the API once
-    void ready.then((created) => {
-      if (disposed) {
-        void created.destroy();
-        return;
-      }
-      editor = created;
-      rebase(initial);
-      props.ref({ save, lineRange });
-    });
+    rebase(initial);
+    props.ref({ save, reload });
     onCleanup(() => {
-      disposed = true;
       clearTimeout(idle);
-      void editor?.destroy();
+      editor?.destroy();
       editor = undefined;
     });
   });
@@ -146,15 +139,8 @@ export function TaskCanvasEditor(props: TaskCanvasEditorProps) {
     on(
       () => props.source,
       (source) => {
-        if (!editor || source === loaded) return;
-        loading = true;
-        try {
-          editor.load(source);
-        } finally {
-          loading = false;
-        }
-        rebase(source);
-        props.onSelect(null);
+        if (!editor || source === loaded || source === pendingSource) return;
+        reload(source);
       },
       { defer: true },
     ),
@@ -165,7 +151,6 @@ export function TaskCanvasEditor(props: TaskCanvasEditorProps) {
       ref={host}
       class="task-canvas-editor"
       data-testid="canvas-editor"
-      aria-label={`Editor for ${props.documentPath}`}
       style={{ flex: '1', 'min-height': '0', overflow: 'auto' }}
       onKeyDown={(e) => {
         if (e.key === 's' && (isMac ? e.metaKey : e.ctrlKey)) {
