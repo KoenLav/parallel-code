@@ -400,6 +400,44 @@ describe('DocumentWorkspaceOverlay', () => {
 
     expect(button?.disabled).toBe(true);
   });
+
+  it.each([
+    ['Commit edits', 'commit_document_edits'],
+    ['Discard edits', 'discard_document_edits'],
+  ])('offers to %s when uncommitted edits are clicked', async (action, channel) => {
+    vi.spyOn(ipc, 'invoke').mockImplementation(async (channel) => {
+      if (channel === IPC.ReadDocument) {
+        return {
+          content: '# Notes\n\nEdited.\n',
+          headSha: '1234567890abcdef',
+          branch: 'main',
+          dirty: true,
+          missing: false,
+        };
+      }
+      return [];
+    });
+    const host = openWorkspace();
+    setStore('documentWorkspacesEnabled', true);
+    await openDocumentWorkspace('docs');
+
+    button(host, 'uncommitted edits')?.click();
+
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Commit or discard edits?',
+    );
+    expect(button(document.body, 'Commit edits')).not.toBeNull();
+    expect(button(document.body, 'Discard edits')).not.toBeNull();
+    expect(ipc.invoke).not.toHaveBeenCalledWith(channel, expect.anything());
+
+    button(document.body, action)?.click();
+
+    await vi.waitFor(() =>
+      expect(ipc.invoke).toHaveBeenCalledWith(channel, {
+        projectRoot: '/projects/release',
+      }),
+    );
+  });
 });
 
 it('hands the prose scroller to the renderer, which holds it steady on an edit', () => {

@@ -259,6 +259,27 @@
   font-size: 12px;
 }
 
+.docws-dialog-title {
+  margin: 0;
+  color: var(--fg);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.docws-dialog-message {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.docws-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
 .docws-body {
   flex: 1;
   min-height: 0;

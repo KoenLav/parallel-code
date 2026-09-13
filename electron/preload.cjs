@@ -169,6 +169,7 @@ const ALLOWED_CHANNELS = new Set([
   'get_document_at_commit',
   'get_document_diff',
   'revert_document_commit',
+  'commit_document_edits',
   'discard_document_edits',
   'inspect_document_folder',
   'prepare_document_project',

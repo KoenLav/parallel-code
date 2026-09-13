@@ -15,6 +15,7 @@ import { getProject, updateProject } from '../store/projects';
 import {
   activeDocumentPath,
   closeDocumentWorkspace,
+  commitDocumentEdits,
   discardDocumentEdits,
   dismissUndo,
   documentStore,
@@ -56,7 +57,7 @@ import { ResizablePanel, type PanelChild } from '../components/ResizablePanel';
 import { createRenderedBlocks } from './use-blocks';
 import { DocumentIcon } from './DocumentIcon';
 import { ActionIcon } from './BlockActions';
-import { ConfirmDialog } from '../components/ConfirmDialog';
+import { Dialog } from '../components/Dialog';
 import { openInEditor, revealItemInDir } from '../lib/shell';
 import { setDocumentFullWidth } from '../store/ui';
 import { errMessage } from '../lib/log';
@@ -607,8 +608,8 @@ export function DocumentWorkspaceOverlay() {
     store.activeDocumentProjectId ? getProject(store.activeDocumentProjectId) : undefined,
   );
   const [editing, setEditing] = createSignal<Project | null>(null);
-  const [confirmDiscard, setConfirmDiscard] = createSignal(false);
-  const [discarding, setDiscarding] = createSignal(false);
+  const [showEditActions, setShowEditActions] = createSignal(false);
+  const [editAction, setEditAction] = createSignal<'commit' | 'discard' | null>(null);
   const snapshot = () => documentStore.snapshot;
   const reviewable = createMemo(() => reviewableRuns());
   const editorCommand = () => store.editorCommand.trim();
@@ -802,8 +803,8 @@ export function DocumentWorkspaceOverlay() {
           <button
             type="button"
             class="docws-head-chip is-warning is-action"
-            title="Committed as “Manual edits” before the next run · click to discard them"
-            onClick={() => setConfirmDiscard(true)}
+            title="Commit or discard these edits"
+            onClick={() => setShowEditActions(true)}
           >
             uncommitted edits
           </button>
@@ -849,23 +850,68 @@ export function DocumentWorkspaceOverlay() {
         />
       </div>
       <EditProjectDialog project={editing()} onClose={() => setEditing(null)} />
-      <ConfirmDialog
-        open={confirmDiscard()}
-        title="Discard uncommitted edits?"
-        message="Every uncommitted change to tracked files in this project goes back to the last commit. This cannot be undone."
-        confirmLabel="Discard edits"
-        confirmLoading={discarding()}
-        confirmDisabled={discarding()}
-        danger
-        onConfirm={() => {
-          setDiscarding(true);
-          void discardDocumentEdits().finally(() => {
-            setDiscarding(false);
-            setConfirmDiscard(false);
-          });
+      <Dialog
+        open={showEditActions()}
+        width="440px"
+        labelledBy="docws-uncommitted-title"
+        describedBy="docws-uncommitted-description"
+        onClose={() => {
+          if (!editAction()) setShowEditActions(false);
         }}
-        onCancel={() => setConfirmDiscard(false)}
-      />
+      >
+        <h2 id="docws-uncommitted-title" class="docws-dialog-title">
+          Commit or discard edits?
+        </h2>
+        <p id="docws-uncommitted-description" class="docws-dialog-message">
+          Commit saves tracked file changes as “Manual edits”. Discard restores tracked files to the
+          last commit and cannot be undone.
+        </p>
+        <div class="docws-dialog-actions">
+          <button
+            type="button"
+            class="docws-btn"
+            disabled={!!editAction()}
+            autofocus
+            onClick={() => setShowEditActions(false)}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="docws-btn docws-btn-danger"
+            disabled={!!editAction()}
+            onClick={() => {
+              setEditAction('discard');
+              void discardDocumentEdits().finally(() => {
+                setEditAction(null);
+                setShowEditActions(false);
+              });
+            }}
+          >
+            <Show when={editAction() === 'discard'}>
+              <span class="inline-spinner" aria-hidden="true" />
+            </Show>
+            Discard edits
+          </button>
+          <button
+            type="button"
+            class="docws-btn docws-btn-primary"
+            disabled={!!editAction()}
+            onClick={() => {
+              setEditAction('commit');
+              void commitDocumentEdits().finally(() => {
+                setEditAction(null);
+                setShowEditActions(false);
+              });
+            }}
+          >
+            <Show when={editAction() === 'commit'}>
+              <span class="inline-spinner" aria-hidden="true" />
+            </Show>
+            Commit edits
+          </button>
+        </div>
+      </Dialog>
       <CandidateOutputDialog />
       <CompareDialog />
     </div>

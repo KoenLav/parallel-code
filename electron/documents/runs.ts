@@ -1608,6 +1608,13 @@ export async function revertDocumentCommit(projectRoot: string, sha: string): Pr
   });
 }
 
+/** Saves tracked content edits as the same `Manual edits` commit made before a run. */
+export async function commitDocumentEdits(projectRoot: string): Promise<void> {
+  await withProjectLock(projectRoot, async () => {
+    await commitPendingEdits(projectRoot);
+  });
+}
+
 /**
  * Throws away the uncommitted edits to tracked content files: what the
  * "uncommitted edits" chip counts, and what the next run would otherwise

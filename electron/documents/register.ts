@@ -14,6 +14,7 @@ import {
 import {
   acceptDocumentCandidate,
   cancelDocumentRun,
+  commitDocumentEdits,
   discardDocumentEdits,
   dispatchDocumentRun,
   getDocumentAtCommit,
@@ -157,6 +158,10 @@ export function registerDocumentHandlers(win: BrowserWindow): void {
 
   ipcMain.handle(IPC.RevertDocumentCommit, (_e, args) => {
     return revertDocumentCommit(projectRootArg(args), validateSha(args.sha));
+  });
+
+  ipcMain.handle(IPC.CommitDocumentEdits, (_e, args) => {
+    return commitDocumentEdits(projectRootArg(args));
   });
 
   ipcMain.handle(IPC.DiscardDocumentEdits, (_e, args) => {
