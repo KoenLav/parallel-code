@@ -333,14 +333,27 @@ body.font-smoothing {
   isolation: isolate;
 }
 
-.app-shell::after {
+/* Window frame. Painted on <body> instead of .app-shell so it survives both
+   things that used to hide it: content that scrolls or floats inside the shell,
+   and overlays portalled to <body> (dialogs, menus, toasts, lightbox) which are
+   siblings of .app-shell and would otherwise paint over it. Fixed to the
+   viewport so all four edges stay put no matter what scrolls underneath.
+
+   Top and left sit on the window edge; right and bottom are pulled in by 2px.
+   At a fractional zoom or display scale the layout viewport is up to 1.4 device
+   pixels wider and taller than the window that shows it (measured across 11
+   window sizes at zoom 1.375), so a line drawn at the extreme right or bottom
+   edge is cut off before it reaches the screen. Nothing in the renderer knows
+   the window's true size to correct for it — outerWidth and Electron's
+   getContentSize() are both rounded to DIPs, which is coarser than the error —
+   so the inset is the only reliable fix, and 1px is not enough. */
+body::after {
   content: '';
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  inset: 0 2px 2px 0;
   pointer-events: none;
-  z-index: 9999;
+  z-index: 2147483647;
   border: 1px solid transparent;
-  border-radius: inherit;
   transition: border-color 0.16s ease;
 }
 
@@ -365,11 +378,13 @@ body.font-smoothing {
   z-index: 1;
 }
 
-.app-shell[data-window-border='true'][data-window-maximized='false']::after {
+body:has(.app-shell[data-window-border='true'][data-window-maximized='false'])::after {
   border-color: color-mix(in srgb, var(--fg-subtle) 42%, transparent);
 }
 
-.app-shell[data-window-border='true'][data-window-maximized='false'][data-window-focused='false']::after {
+body:has(
+    .app-shell[data-window-border='true'][data-window-maximized='false'][data-window-focused='false']
+  )::after {
   border-color: color-mix(in srgb, var(--fg-subtle) 26%, transparent);
 }
 
