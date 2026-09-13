@@ -32,8 +32,10 @@ the document.
    documents lists them, to open one of those instead. The dialog says what it will do —
    create the folder, `git init`, create the file, make the first commit — and does it on
    confirm.
-3. The workspace opens in the task area, with the document on the left, the agent on the right, and the sidebar
-   available for switching projects or returning to coding tasks. It has two tabs,
+3. The workspace opens as a resizable panel alongside coding tasks. Selecting another
+   task leaves it open; the title-bar switcher and task navigation shortcuts include it.
+   One document workspace can be open at a time; selecting another document project
+   replaces the project in that panel. Focus mode shows the selected panel at full width. It has two tabs,
    **Document** and **History**; comparing
    proposals happens in a modal over either.
    A **Files** tab in the right panel lists every file of the project; click one to open
@@ -73,9 +75,10 @@ the document.
      The toolbar's **Full width** lets the document use the whole pane instead of a reading
      column; the choice is remembered. Mermaid diagrams, here and in every other Markdown
      surface of the app, carry an enlarge button that opens them at the size of the window.
-5. The right panel has three tabs and a draggable seam (double-click it to reset the
-   width to 420px; the width is remembered). Narrow windows can scroll the workspace
-   horizontally without moving the agent below the document. **Agent** is the terminal a task has: the bar above it
+5. The agent section has three tabs and a draggable seam. Below 800px panel width,
+   it sits below the document; wider panels place it on the right with a default width
+   of 420px. Each layout remembers its own split; double-click the seam to reset it.
+   Resizing and switching tasks preserve the agent session. **Agent** is the terminal a task has: the bar above it
    shows the last prompt sent, the chips switch between agents, **+** adds another one
    (as tabs by default, or side by side), and the prompt box below sends to the first
    agent. A session that exits offers **Restart**, **Resume** and a switch to another
@@ -313,7 +316,7 @@ workspace-write` (the sandbox blocks writes outside the worktree),
   annotations, setup, IPC shapes and the registrar for every channel it owns;
   `src/documents/` holds the UI with its store, types and markdown helpers. The seams are
   `registerDocumentHandlers(win)` and `stopAllDocumentWork()` in main,
-  `<DocumentWorkspaceOverlay />` in `App.tsx`, and the sidebar's project row and `+` menu.
+  `<DocumentWorkspacePanel />` in `TilingLayout.tsx`, and the sidebar's project row and `+` menu.
   The one runtime module the renderer imports across the process boundary is
   `electron/documents/shared.ts`.
 

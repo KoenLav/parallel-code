@@ -1,6 +1,7 @@
+import { isDocumentAgentTaskId } from '../documents/task-id';
 import { batch } from 'solid-js';
 import { store, setStore } from './core';
-import { setActiveTask } from './navigation';
+import { openPanelOrder, setActiveTask } from './navigation';
 import { showNotification } from './notification';
 import { computeSidebarTaskOrder } from './sidebar-order';
 import { uncollapseTask } from './tasks';
@@ -116,6 +117,7 @@ function buildMainGrid(panelId: string): string[][] {
   if (task) {
     const toolbarCols = shellToolbarPanels(task);
     const aiCols = aiTerminalPanels(task);
+    if (isDocumentAgentTaskId(panelId)) return [aiCols, ['prompt']];
 
     if (store.taskSplitMode[panelId]) {
       const grid: string[][] = [['title']];
@@ -361,7 +363,7 @@ export function navigateColumn(direction: 'left' | 'right'): void {
   if (store.placeholderFocused) {
     if (direction === 'left') {
       unfocusPlaceholder();
-      const lastTaskId = store.taskOrder[store.taskOrder.length - 1];
+      const lastTaskId = openPanelOrder().at(-1);
       if (lastTaskId) {
         setActiveTask(lastTaskId);
         setTaskFocusedPanel(lastTaskId, getTaskFocusedPanel(lastTaskId));
@@ -377,7 +379,7 @@ export function navigateColumn(direction: 'left' | 'right'): void {
   // for crossing into the panel area, not for activating the highlighted item.
   if (store.sidebarFocused) {
     if (direction === 'right') {
-      const targetTaskId = store.taskOrder[0] ?? store.sidebarFocusedTaskId ?? taskId;
+      const targetTaskId = openPanelOrder()[0] ?? store.sidebarFocusedTaskId ?? taskId;
       if (targetTaskId) {
         if (store.tasks[targetTaskId]?.collapsed) {
           uncollapseTask(targetTaskId);
@@ -414,7 +416,7 @@ export function navigateColumn(direction: 'left' | 'right'): void {
   }
 
   // Cross task boundary
-  const { taskOrder } = store;
+  const taskOrder = openPanelOrder();
   const taskIdx = taskOrder.indexOf(taskId);
   const isCurrentTerminal = !store.tasks[taskId];
 
@@ -470,7 +472,8 @@ export function navigateColumn(direction: 'left' | 'right'): void {
 export function navigateTask(direction: 'left' | 'right'): void {
   if (store.showHelpDialog || store.showSettingsDialog) return;
 
-  const { taskOrder, activeTaskId } = store;
+  const { activeTaskId } = store;
+  const taskOrder = openPanelOrder();
   if (!activeTaskId) return;
 
   const currentIdx = taskOrder.indexOf(activeTaskId);
@@ -480,7 +483,10 @@ export function navigateTask(direction: 'left' | 'right'): void {
   if (targetIdx < 0 || targetIdx >= taskOrder.length) return;
 
   const targetId = taskOrder[targetIdx];
-  if (!store.tasks[targetId]) return;
+  if (!store.tasks[targetId]) {
+    setActiveTask(targetId);
+    return;
+  }
 
   const currentPanel = getTaskFocusedPanel(activeTaskId);
   const targetGrid = buildGrid(targetId);

@@ -67,13 +67,14 @@ describe('rail and toolbar layout', () => {
   });
 });
 
-/* The workspace replaces the task columns in the same slot, so it has to sit
-   on the same margins and carry the same rounded frame they do. */
+/* The workspace fills a tile and carries the same rounded frame as coding tasks. */
 describe('workspace frame', () => {
-  it('insets the workspace by the task strip padding and rounds it like a column', () => {
+  it('fills its tile and rounds it like a task column', () => {
     const ws = rule('.docws-workspace');
 
-    expect(ws).toMatch(/inset:\s*2px 6px 2px 4px/);
+    expect(ws).toMatch(/position:\s*relative/);
+    expect(ws).toMatch(/height:\s*100%/);
+    expect(ws).not.toMatch(/inset:/);
     expect(ws).toMatch(/border-radius:\s*var\(--radius-lg\)/);
     expect(ws).toMatch(/border:\s*1px solid var\(--border\)/);
   });

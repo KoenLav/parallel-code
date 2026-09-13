@@ -3,6 +3,7 @@ import { expectDefined, type MockStoreHarness } from './test-helpers';
 
 type MockStore = {
   activeTaskId: string | null;
+  activeDocumentProjectId: string | null;
   activeAgentId: string | null;
   tasks: Record<string, { id: string; agentIds: string[]; selectedAgentId?: string }>;
   terminals: Record<string, unknown>;
@@ -37,6 +38,7 @@ beforeEach(() => {
   const harness = expectDefined(core.harness, 'mock store harness');
   mockStore = harness.reset({
     activeTaskId: null,
+    activeDocumentProjectId: null,
     activeAgentId: null,
     tasks: {
       'task-1': { id: 'task-1', agentIds: ['agent-a'] },
@@ -59,6 +61,15 @@ afterEach(() => {
 });
 
 describe('jumpToTask', () => {
+  it('selects the document after coding panels even with no document agent installed', () => {
+    mockStore.activeDocumentProjectId = 'docs';
+    jumpToTask(3);
+    expect(mockStore.activeTaskId).toBe('doc-agent-docs');
+    expect(mockStore.activeAgentId).toBeNull();
+    jumpToTask(0);
+    expect(mockStore.activeTaskId).toBe('task-1');
+    expect(mockStore.activeDocumentProjectId).toBe('docs');
+  });
   it('switches to the task at the given 0-based index', () => {
     jumpToTask(1);
     expect(mockStore.activeTaskId).toBe('task-2');

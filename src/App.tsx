@@ -86,7 +86,6 @@ import { isMac, mod } from './lib/platform';
 import { createCtrlWheelZoomHandler } from './lib/wheelZoom';
 import { redrawAllTerminals } from './lib/terminalFitManager';
 import { ArenaOverlay } from './arena/ArenaOverlay';
-import { DocumentWorkspaceOverlay } from './documents/DocumentWorkspaceOverlay';
 import { isDocumentAgentTaskId } from './documents/agent-task';
 import {
   closeDocumentWorkspace,
@@ -683,6 +682,10 @@ function App() {
           closeTerminal(id);
           return;
         }
+        if (isDocumentAgentTaskId(id)) {
+          closeDocumentWorkspace();
+          return;
+        }
         if (listedTask(id)) setPendingAction({ type: 'close', taskId: id });
       },
       mergeTask: () => {
@@ -711,7 +714,7 @@ function App() {
           closeArena();
           return;
         }
-        if (store.activeDocumentProjectId) {
+        if (store.activeDocumentProjectId && isDocumentAgentTaskId(store.activeTaskId)) {
           // A pinned note covers the prose and goes first. Then the composer,
           // up with a passage or with a draft opened from the toolbar or a
           // note; either way Escape closes it before the workspace.
@@ -930,16 +933,7 @@ function App() {
             </button>
           </Show>
           <div class="task-workspace">
-            <div
-              class="task-workspace-code"
-              classList={{ 'is-hidden': !!store.activeDocumentProjectId }}
-              inert={!!store.activeDocumentProjectId}
-            >
-              <TilingLayout />
-            </div>
-            <Show when={store.activeDocumentProjectId}>
-              <DocumentWorkspaceOverlay />
-            </Show>
+            <TilingLayout />
           </div>
         </main>
         <UsageStatusBar />

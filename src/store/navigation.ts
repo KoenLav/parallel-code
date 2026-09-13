@@ -1,3 +1,4 @@
+import { documentAgentTaskId } from '../documents/task-id';
 import { store, setStore } from './core';
 import { getTaskFocusedPanel, setTaskFocusedPanel, triggerFocus } from './focused-panel';
 import { showNotification } from './notification';
@@ -22,10 +23,19 @@ function selectedAgentIdForTask(task: {
     : null;
 }
 
+/** Visible tile order; the single document workspace follows coding tasks. */
+export function openPanelOrder(): string[] {
+  return store.activeDocumentProjectId
+    ? [...store.taskOrder, documentAgentTaskId(store.activeDocumentProjectId)]
+    : store.taskOrder;
+}
+
 export function setActiveTask(id: string): void {
   const task = store.tasks[id];
   const terminal = store.terminals[id];
-  if (!task && !terminal) return;
+  const isDocument =
+    store.activeDocumentProjectId && id === documentAgentTaskId(store.activeDocumentProjectId);
+  if (!task && !terminal && !isDocument) return;
   let activeAgentId: string | null = null;
   if (task) {
     activeAgentId =
@@ -62,9 +72,9 @@ export function moveActiveTask(direction: 'left' | 'right'): void {
 }
 
 export function jumpToTask(index: number): void {
-  // Index against taskOrder so Cmd+N matches the left-to-right tile order
+  // Index against visible panels so Cmd+N matches the left-to-right tile order
   // shown in the main area (and the order Cmd+Left/Right cycles through).
-  const id = store.taskOrder[index];
+  const id = openPanelOrder()[index];
   if (!id) return;
   setActiveTask(id);
   if (store.sidebarFocused) {
@@ -81,7 +91,6 @@ export function toggleNewTaskPanel(show?: boolean): void {
     return;
   }
   if (shouldShow) {
-    setStore('activeDocumentProjectId', null);
     setStore('sidebarFocused', false);
     setStore('placeholderFocused', false);
   } else {

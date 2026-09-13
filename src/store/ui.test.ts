@@ -3,6 +3,7 @@ import { expectDefined, type MockStoreHarness } from './test-helpers';
 
 type MockStore = {
   activeTaskId: string | null;
+  activeDocumentProjectId: string | null;
   focusMode: boolean;
   tasks: Record<string, { id: string; projectId: string }>;
   focusedPanel: Record<string, string>;
@@ -73,6 +74,7 @@ import {
 beforeEach(() => {
   const harness = expectDefined(core.harness, 'mock store harness');
   mockStore = harness.reset({
+    activeDocumentProjectId: null,
     activeTaskId: 'task-1',
     focusMode: false,
     tasks: {
@@ -100,6 +102,12 @@ afterEach(() => {
 });
 
 describe('toggleTaskFocusMode', () => {
+  it('can focus the document panel before an agent is installed', () => {
+    mockStore.activeDocumentProjectId = 'docs';
+    toggleTaskFocusMode('doc-agent-docs');
+    expect(mockStore.focusMode).toBe(true);
+    expect(mockStore.activeTaskId).toBe('doc-agent-docs');
+  });
   it('refocuses the last focused task panel when entering focus mode', () => {
     mockStore.focusedPanel['task-1'] = 'notes';
 

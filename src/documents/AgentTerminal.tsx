@@ -77,7 +77,7 @@ function AgentTask(props: { task: Task; visible: boolean }) {
       <div class="docws-agent-term">
         <TaskAITerminal
           task={props.task}
-          isActive
+          isActive={store.activeTaskId === props.task.id}
           visible={props.visible}
           selectedAgentId={effectiveAgentId(props.task) ?? ''}
           onSelectAgent={setActiveAgent}

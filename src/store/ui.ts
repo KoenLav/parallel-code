@@ -1,3 +1,4 @@
+import { documentAgentTaskId } from '../documents/task-id';
 import { batch } from 'solid-js';
 import { produce } from 'solid-js/store';
 import { store, setStore } from './core';
@@ -288,7 +289,9 @@ export function toggleFocusMode(on?: boolean): void {
 }
 
 export function toggleTaskFocusMode(taskId: string | null = store.activeTaskId): void {
-  if (!taskId || !store.tasks[taskId]) return;
+  const isDocument =
+    store.activeDocumentProjectId && taskId === documentAgentTaskId(store.activeDocumentProjectId);
+  if (!taskId || (!store.tasks[taskId] && !isDocument)) return;
   const enteringFocusMode = !store.focusMode;
   if (store.activeTaskId !== taskId) setActiveTask(taskId);
   toggleFocusMode();

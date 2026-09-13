@@ -3,6 +3,8 @@
  * against it, and the comparison/history views. Kept apart from the task
  * store because none of it is a task: proposals live in Git, not in panels.
  */
+import { setActiveTask } from '../store/navigation';
+import { documentAgentTaskId } from './task-id';
 import { untrack } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
 import { IPC } from '../../electron/ipc/channels';
@@ -210,7 +212,10 @@ function startWatcher(projectId: string, projectRoot: string, documentPath: stri
 export async function openDocumentWorkspace(projectId: string): Promise<void> {
   const project = getProject(projectId);
   if (!project?.documentPath || !store.documentWorkspacesEnabled) return;
-  if (docStore.projectId === projectId) return;
+  if (docStore.projectId === projectId) {
+    setActiveTask(documentAgentTaskId(projectId));
+    return;
+  }
   stopCurrentWatcher();
   const documentPath =
     typeof project.documentOpenPath === 'string' && project.documentOpenPath

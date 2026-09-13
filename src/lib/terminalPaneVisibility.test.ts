@@ -4,21 +4,16 @@ import { isTerminalPaneOnScreen } from './terminalPaneVisibility';
 const base = { focusMode: false, activeTaskId: 't1', taskId: 't1', viewportVisibility: undefined };
 
 describe('isTerminalPaneOnScreen', () => {
-  it('shows only the document workspace terminal while that workspace covers coding tasks', () => {
-    const workspaceTaskId = 'doc-agent-docs';
-    expect(isTerminalPaneOnScreen({ ...base, workspaceTaskId })).toBe(false);
-    expect(isTerminalPaneOnScreen({ ...base, workspaceTaskId, taskId: workspaceTaskId })).toBe(
+  it('shows document and coding terminals together and applies focus and viewport visibility to both', () => {
+    const doc = { ...base, taskId: 'doc-agent-docs' };
+    expect(isTerminalPaneOnScreen(base)).toBe(true);
+    expect(isTerminalPaneOnScreen(doc)).toBe(true);
+    expect(isTerminalPaneOnScreen({ ...doc, viewportVisibility: 'offscreen-right' })).toBe(false);
+    expect(isTerminalPaneOnScreen({ ...doc, focusMode: true })).toBe(false);
+    expect(isTerminalPaneOnScreen({ ...doc, focusMode: true, activeTaskId: doc.taskId })).toBe(
       true,
     );
-    expect(
-      isTerminalPaneOnScreen({
-        ...base,
-        workspaceTaskId,
-        taskId: workspaceTaskId,
-        paneVisible: false,
-      }),
-    ).toBe(false);
-    expect(isTerminalPaneOnScreen({ ...base, workspaceTaskId, standalone: true })).toBe(true);
+    expect(isTerminalPaneOnScreen({ ...doc, paneVisible: false })).toBe(false);
   });
   it('in tiling mode, only fully off-screen tasks are hidden', () => {
     expect(isTerminalPaneOnScreen({ ...base, viewportVisibility: undefined })).toBe(true);

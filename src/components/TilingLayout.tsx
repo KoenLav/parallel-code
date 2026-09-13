@@ -22,6 +22,8 @@ import {
   scrollTaskElementIntoView,
   toggleNewTaskPanel,
 } from '../store/store';
+import { DocumentWorkspacePanel } from '../documents/DocumentWorkspacePanel';
+import { documentAgentTaskId } from '../documents/task-id';
 import { codeProjects } from '../store/projects';
 import { closeTask } from '../store/tasks';
 import { TaskPanel } from './TaskPanel';
@@ -51,7 +53,10 @@ interface TileChild {
 }
 
 export function TilingLayout() {
-  const focusMode = () => store.focusMode && store.taskOrder.length > 0 && !store.showNewTaskPanel;
+  const documentTaskId = () =>
+    store.activeDocumentProjectId ? documentAgentTaskId(store.activeDocumentProjectId) : null;
+  const hasPanels = () => store.taskOrder.length > 0 || !!documentTaskId();
+  const focusMode = () => store.focusMode && hasPanels() && !store.showNewTaskPanel;
   let containerRef: HTMLDivElement | undefined;
   const [hasOverflowLeft, setHasOverflowLeft] = createSignal(false);
   const [hasOverflowRight, setHasOverflowRight] = createSignal(false);
@@ -189,6 +194,7 @@ export function TilingLayout() {
   // Recompute viewport state when panel order/structure changes.
   createEffect(() => {
     void store.taskOrder.join('|');
+    void documentTaskId();
     requestAnimationFrame(() => updateViewportState());
   });
 
@@ -244,7 +250,8 @@ export function TilingLayout() {
 
   const panelChildren = createMemo((): TileChild[] => {
     const currentIds = new Set<string>(store.taskOrder);
-    if (store.taskOrder.length > 0) currentIds.add('__placeholder');
+    if (hasPanels()) currentIds.add('__placeholder');
+    if (documentTaskId()) currentIds.add('__document-workspace');
     if (store.showNewTaskPanel) currentIds.add('__new-task');
 
     // Remove stale entries for deleted tasks
@@ -379,6 +386,36 @@ export function TilingLayout() {
       return cached;
     });
 
+    // One document workspace, kept mounted when its project or active task changes.
+    if (documentTaskId()) {
+      let documentPanel = panelCache.get('__document-workspace');
+      if (!documentPanel) {
+        documentPanel = {
+          id: '__document-workspace',
+          initialSize: TASK_TILE_DEFAULT_WIDTH,
+          minSize: TASK_TILE_MIN_WIDTH,
+          content: () => (
+            <div
+              data-task-id={documentTaskId()}
+              style={{
+                height: '100%',
+                padding: store.themePreset.startsWith('islands-')
+                  ? focusMode()
+                    ? '0'
+                    : '0 1px'
+                  : '0 3px',
+                'box-sizing': 'border-box',
+              }}
+            >
+              <DocumentWorkspacePanel />
+            </div>
+          ),
+        };
+        panelCache.set('__document-workspace', documentPanel);
+      }
+      panels.push(documentPanel);
+    }
+
     if (store.showNewTaskPanel) {
       let draft = panelCache.get('__new-task');
       if (!draft) {
@@ -395,7 +432,7 @@ export function TilingLayout() {
       panels.push(draft);
     }
 
-    if (store.taskOrder.length > 0) {
+    if (hasPanels()) {
       let placeholder = panelCache.get('__placeholder');
       if (!placeholder) {
         placeholder = {
@@ -454,7 +491,7 @@ export function TilingLayout() {
               : { width: 'fit-content', 'min-width': '100%' }),
           }}
         >
-          <Show when={store.taskOrder.length === 0 && !store.showNewTaskPanel}>
+          <Show when={!hasPanels() && !store.showNewTaskPanel}>
             <div
               class="empty-state"
               style={{
@@ -600,7 +637,8 @@ export function TilingLayout() {
                 const isPlaceholder = child.id === '__placeholder';
                 if (focusMode()) {
                   if (isPlaceholder) return { display: 'none' };
-                  const isActive = child.id === store.activeTaskId;
+                  const id = child.id === '__document-workspace' ? documentTaskId() : child.id;
+                  const isActive = id === store.activeTaskId;
                   return {
                     position: 'absolute',
                     inset: store.themePreset.startsWith('islands-') ? '0 4px 0 0' : '0',
@@ -624,7 +662,16 @@ export function TilingLayout() {
                 !focusMode() && !child.fixed && i() < panelChildren().length - 1;
               return (
                 <>
-                  <div style={wrapperStyle()}>{child.content()}</div>
+                  <div
+                    style={wrapperStyle()}
+                    inert={
+                      focusMode() &&
+                      (child.id === '__document-workspace' ? documentTaskId() : child.id) !==
+                        store.activeTaskId
+                    }
+                  >
+                    {child.content()}
+                  </div>
                   <Show when={showHandle()}>
                     <div
                       class={`resize-handle resize-handle-h ${dragging() === i() ? 'dragging' : ''}`}

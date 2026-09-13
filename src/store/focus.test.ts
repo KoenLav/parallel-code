@@ -51,6 +51,7 @@ vi.mock('./core', async () => {
 });
 
 vi.mock('./navigation', () => ({
+  openPanelOrder: () => mockStore.taskOrder,
   setActiveTask: vi.fn((id: string) => {
     mockStore.activeTaskId = id;
     mockStore.activeAgentId = mockStore.tasks[id]?.agentIds?.[0] ?? null;

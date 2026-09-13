@@ -14,23 +14,11 @@
   min-width: 0;
 }
 
-.task-workspace-code {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-}
-
-.task-workspace-code.is-hidden {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-/* The workspace stands in for a task column, so it takes the same frame: the
-   tiling strip's padding as its inset, and the column's margin, border and
-   radius through .task-column — which also carries the per-theme overrides. */
 .docws-workspace {
-  position: absolute;
-  inset: 2px 6px 2px 4px;
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;

@@ -128,7 +128,7 @@ function looksIdle(agentId: string): boolean {
  *  take focus and the send-prompt shortcut reaches them. */
 export function activateDocumentAgentTask(project: Project): void {
   const task = ensureDocumentAgentTask(project);
-  if (task && store.activeTaskId !== task.id) setActiveTask(task.id);
+  setActiveTask(task?.id ?? documentAgentTaskId(project.id));
 }
 
 function isOpenPanel(id: string | null): id is string {

@@ -1,7 +1,7 @@
 import { render } from 'solid-js/web';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setStore, store } from '../store/core';
-import { DocumentWorkspaceOverlay } from './DocumentWorkspaceOverlay';
+import { DocumentWorkspacePanel } from './DocumentWorkspacePanel';
 import { documentStore, setDocumentComposerDraft, openDocumentWorkspace } from './store';
 import { IPC } from '../../electron/ipc/channels';
 import * as ipc from '../lib/ipc';
@@ -74,7 +74,7 @@ function openWorkspace(): HTMLElement {
   });
   const host = document.createElement('div');
   document.body.append(host);
-  disposers.push(render(() => <DocumentWorkspaceOverlay />, host));
+  disposers.push(render(() => <DocumentWorkspacePanel />, host));
   return host;
 }
 
@@ -84,7 +84,24 @@ function button(host: HTMLElement, label: string): HTMLButtonElement | null {
   );
 }
 
-describe('DocumentWorkspaceOverlay', () => {
+describe('DocumentWorkspacePanel', () => {
+  it('stacks the document above the agent in a narrow panel', () => {
+    const host = openWorkspace();
+    expect(host.querySelector('.docws-body .resize-handle-v')).not.toBeNull();
+    expect(host.querySelector('.docws-body .resize-handle-h')).toBeNull();
+  });
+
+  it('refocuses the open document without replacing its draft', async () => {
+    vi.spyOn(ipc, 'invoke').mockResolvedValue([]);
+    openWorkspace();
+    setStore('documentWorkspacesEnabled', true);
+    await openDocumentWorkspace('docs');
+    setDocumentComposerDraft({ text: 'Keep my draft' });
+    setStore('activeTaskId', 'other');
+    await openDocumentWorkspace('docs');
+    expect(store.activeTaskId).toBe('doc-agent-docs');
+    expect(documentStore.composerDraft?.text).toBe('Keep my draft');
+  });
   it('bounds the composer to the document pane and remeasures on pane resize', async () => {
     let reflow: (() => void) | undefined;
     const observe = vi.fn();
@@ -92,7 +109,7 @@ describe('DocumentWorkspaceOverlay', () => {
       'ResizeObserver',
       class {
         constructor(callback: () => void) {
-          reflow = callback;
+          reflow ??= callback;
         }
         observe = observe;
         unobserve() {}
@@ -126,7 +143,7 @@ describe('DocumentWorkspaceOverlay', () => {
   });
 
   it.each(['select', 'restore', 'create', 'terminal'] as const)(
-    'returns to the task area when navigating via %s',
+    'keeps the document open when navigating via %s',
     async (action) => {
       vi.spyOn(ipc, 'invoke').mockResolvedValue(undefined);
       const task: Task = {
@@ -173,7 +190,7 @@ describe('DocumentWorkspaceOverlay', () => {
             description: '',
           },
         });
-      expect(store.activeDocumentProjectId).toBeNull();
+      expect(store.activeDocumentProjectId).toBe('docs');
       expect(store.activeTaskId).not.toBeNull();
     },
   );
@@ -191,7 +208,7 @@ describe('DocumentWorkspaceOverlay', () => {
     disposers.pop()?.();
     const reopened = document.createElement('div');
     document.body.append(reopened);
-    disposers.push(render(() => <DocumentWorkspaceOverlay />, reopened));
+    disposers.push(render(() => <DocumentWorkspacePanel />, reopened));
     expect(reopened.querySelector('[aria-label="Reset document zoom"]')?.textContent).toBe('110%');
     for (let i = 0; i < 20; i++)
       reopened.querySelector<HTMLButtonElement>('[aria-label="Zoom out document"]')?.click();
@@ -237,7 +254,7 @@ describe('DocumentWorkspaceOverlay', () => {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    disposers.push(render(() => <DocumentWorkspaceOverlay />, host));
+    disposers.push(render(() => <DocumentWorkspacePanel />, host));
 
     const header = host.querySelector<HTMLElement>('.docws-header');
 
@@ -283,7 +300,8 @@ describe('DocumentWorkspaceOverlay', () => {
     expect(host.querySelector('.docws-doc')?.classList.contains('is-full-width')).toBe(true);
   });
 
-  it('places the agent, runs and files panel to the right of the document', () => {
+  it('places the agent, runs and files panel to the right in a wide panel', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
     setStore({
       projects: [
         {
@@ -299,7 +317,7 @@ describe('DocumentWorkspaceOverlay', () => {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    disposers.push(render(() => <DocumentWorkspaceOverlay />, host));
+    disposers.push(render(() => <DocumentWorkspacePanel />, host));
 
     expect(host.querySelector('.docws-body .resize-handle-h')).not.toBeNull();
     expect(host.querySelector('.docws-body .resize-handle-v')).toBeNull();
@@ -315,6 +333,7 @@ describe('DocumentWorkspaceOverlay', () => {
   });
 
   it('restores the agent column width without treating the former bottom-panel height as a width', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
     setStore('panelUserSize', { 'docws-task:rail': 240 });
     const host = openWorkspace();
     const rail = host.querySelector<HTMLElement>('.docws-rail');
@@ -339,7 +358,7 @@ describe('DocumentWorkspaceOverlay', () => {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    disposers.push(render(() => <DocumentWorkspaceOverlay />, host));
+    disposers.push(render(() => <DocumentWorkspacePanel />, host));
 
     const tabs = Array.from(host.querySelectorAll<HTMLButtonElement>('.docws-header [role="tab"]'));
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Document', 'History']);
@@ -363,7 +382,7 @@ describe('DocumentWorkspaceOverlay', () => {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    disposers.push(render(() => <DocumentWorkspaceOverlay />, host));
+    disposers.push(render(() => <DocumentWorkspacePanel />, host));
 
     const button = host.querySelector<HTMLButtonElement>(
       'button[aria-label="Open docs/notes.md in code"]',
@@ -392,7 +411,7 @@ describe('DocumentWorkspaceOverlay', () => {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    disposers.push(render(() => <DocumentWorkspaceOverlay />, host));
+    disposers.push(render(() => <DocumentWorkspacePanel />, host));
 
     const button = host.querySelector<HTMLButtonElement>(
       'button[aria-label="Configure an editor command in Settings to open notes.md"]',

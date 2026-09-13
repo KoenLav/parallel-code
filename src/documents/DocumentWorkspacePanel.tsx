@@ -33,8 +33,13 @@ import {
   type DocumentView,
 } from './store';
 import { resetWorkspaceUi } from './workspace-ui';
-import { activateDocumentAgentTask, releaseDocumentAgentTask } from './agent-task';
-import { isDocumentAgentTaskId } from './task-id';
+import {
+  activateDocumentAgentTask,
+  ensureDocumentAgentTask,
+  releaseDocumentAgentTask,
+} from './agent-task';
+import { documentAgentTaskId } from './task-id';
+import { setActiveTask } from '../store/navigation';
 import { findAnchorTarget } from './links';
 import { relocateAnchor } from './annotation-anchor';
 import { isHtmlDocument } from './html-document';
@@ -603,10 +608,27 @@ function DocumentPane(props: { project: Project }) {
 }
 
 /** Document task surface in the main workspace, with its agent below the document. */
-export function DocumentWorkspaceOverlay() {
+export function DocumentWorkspacePanel() {
   const project = createMemo<Project | undefined>(() =>
     store.activeDocumentProjectId ? getProject(store.activeDocumentProjectId) : undefined,
   );
+  const taskId = () => {
+    const p = project();
+    return p ? documentAgentTaskId(p.id) : null;
+  };
+  const isActive = () => !!taskId() && store.activeTaskId === taskId();
+  function activate() {
+    const id = taskId();
+    if (id && !isActive()) setActiveTask(id);
+  }
+  let panelRef!: HTMLDivElement;
+  const [wide, setWide] = createSignal(false);
+  onMount(() => {
+    const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= 800));
+    observer.observe(panelRef);
+    setWide(panelRef.clientWidth >= 800);
+    onCleanup(() => observer.disconnect());
+  });
   const [editing, setEditing] = createSignal<Project | null>(null);
   const [showEditActions, setShowEditActions] = createSignal(false);
   const [editAction, setEditAction] = createSignal<'commit' | 'discard' | null>(null);
@@ -634,16 +656,19 @@ export function DocumentWorkspaceOverlay() {
     ),
   );
 
-  // The agent runs in a task of its own. It is the active task while the
-  // workspace is up, so its terminal and prompt box take focus; the task that
-  // was active before gets focus back on close. Created once the installed
+  // Opening a workspace selects its agent task; selecting another panel leaves
+  // it mounted. On close, restore the previous task if the document still has
+  // focus. The agent task is created once the installed
   // agents are known, which may be after the workspace opened.
   const previousActiveTask = store.activeTaskId;
   createEffect(
     on(
-      () => [project(), store.availableAgents] as const,
-      ([p]) => {
-        if (p) activateDocumentAgentTask(p);
+      () => [project()?.id, store.availableAgents] as const,
+      ([id], previous) => {
+        const p = project();
+        if (!p) return;
+        if (id !== previous?.[0] || isActive()) activateDocumentAgentTask(p);
+        else ensureDocumentAgentTask(p);
       },
     ),
   );
@@ -652,19 +677,6 @@ export function DocumentWorkspaceOverlay() {
     if (documentStore.projectId) closeDocumentWorkspace();
     releaseDocumentAgentTask(previousActiveTask);
   });
-
-  // Creation/restoration also activate tasks, without going through sidebar
-  // selection. Leave the workspace for every navigation path. Defer the first
-  // pass: a project with no installed agent may retain its previous active task.
-  createEffect(
-    on(
-      () => store.activeTaskId,
-      (id) => {
-        if (id && !isDocumentAgentTaskId(id)) closeDocumentWorkspace();
-      },
-      { defer: true },
-    ),
-  );
 
   function openDocumentInEditor() {
     const currentProject = project();
@@ -700,12 +712,14 @@ export function DocumentWorkspaceOverlay() {
     );
   }
 
-  // The document fills the left column; the agent keeps its resized width
-  // across restarts and stays attached while reading history.
+  // Stable children keep the agent attached across stacked/wide layout changes
+  // and while reading history. Each direction remembers its own split sizes.
   const panes: PanelChild[] = [
     {
       id: 'main',
-      minSize: 320,
+      get minSize() {
+        return wide() ? 320 : 120;
+      },
       content: () => (
         <>
           <Show when={documentStore.view === 'document' && project()}>
@@ -721,7 +735,9 @@ export function DocumentWorkspaceOverlay() {
     },
     {
       id: 'rail',
-      minSize: 320,
+      get minSize() {
+        return wide() ? 320 : 120;
+      },
       defaultSize: 420,
       // Keyed: the panel's children read the project from cleanups, which
       // must not go through an accessor while the workspace is closing.
@@ -734,7 +750,15 @@ export function DocumentWorkspaceOverlay() {
   ];
 
   return (
-    <div class="docws-workspace task-column active" role="region" aria-label="Document workspace">
+    <div
+      ref={panelRef}
+      class="docws-workspace task-column"
+      classList={{ active: isActive() }}
+      role="region"
+      aria-label="Document workspace"
+      onMouseDown={activate}
+      onFocusIn={activate}
+    >
       <div class="docws-header" data-tauri-drag-region>
         <div class="docws-title">
           <DocumentIcon />
@@ -842,10 +866,10 @@ export function DocumentWorkspaceOverlay() {
       </Show>
       <div class="docws-body">
         <ResizablePanel
-          direction="horizontal"
-          persistKey="docws"
+          direction={wide() ? 'horizontal' : 'vertical'}
+          persistKey={wide() ? 'docws' : 'docws:stack'}
           style={{ overflow: 'visible' }}
-          absorberIds={['main']}
+          absorberIds={wide() ? ['main'] : ['main', 'rail']}
           children={panes}
         />
       </div>

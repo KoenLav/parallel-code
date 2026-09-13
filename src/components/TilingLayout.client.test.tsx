@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC } from '../../electron/ipc/channels';
 import { invoke } from '../lib/ipc';
 import { store, setStore } from '../store/core';
-import { toggleNewTaskPanel } from '../store/navigation';
+import { setActiveTask, toggleNewTaskPanel } from '../store/navigation';
 import { createTask } from '../store/tasks';
 import { TilingLayout } from './TilingLayout';
 
@@ -12,6 +12,9 @@ vi.mock('../lib/ipc', () => ({ invoke: vi.fn() }));
 vi.mock('../store/tasks', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../store/tasks')>()),
   createTask: vi.fn(),
+}));
+vi.mock('../documents/DocumentWorkspacePanel', () => ({
+  DocumentWorkspacePanel: () => <div>Document workspace</div>,
 }));
 vi.mock('./TaskPanel', () => ({ TaskPanel: () => <div>Existing task</div> }));
 vi.mock('./TerminalPanel', () => ({
@@ -46,6 +49,7 @@ beforeEach(() => {
     tasks: {},
     terminals: {},
     activeTaskId: null,
+    activeDocumentProjectId: null,
     showNewTaskPanel: false,
     focusMode: false,
     newTaskDropUrl: null,
@@ -253,7 +257,7 @@ describe('inline task creation', () => {
     expect(document.activeElement).toBe(other);
     setStore('activeDocumentProjectId', 'documents');
     toggleNewTaskPanel(true);
-    expect(store.activeDocumentProjectId).toBeNull();
+    expect(store.activeDocumentProjectId).toBe('documents');
     expect(container.querySelectorAll('textarea')).toHaveLength(1);
     expect(prompt.value).toBe('Keep this draft');
   });
@@ -363,5 +367,54 @@ describe('inline task creation', () => {
     );
     expect(prompt.value).toBe('Edited comparison');
     expect(document.activeElement).toBe(outside);
+  });
+});
+
+describe('inline document workspace', () => {
+  it('keeps coding and document panels mounted when focus changes', () => {
+    setStore('tasks', 'task', {
+      id: 'task',
+      name: 'Task',
+      projectId: 'project',
+      branchName: '',
+      worktreePath: '/repo',
+      agentIds: [],
+      shellAgentIds: [],
+      notes: '',
+      lastPrompt: '',
+    });
+    setStore('taskOrder', ['task']);
+    setStore('activeDocumentProjectId', 'docs');
+    setActiveTask('doc-agent-docs');
+    const code = container.querySelector<HTMLElement>('[data-task-id="task"]');
+    const doc = container.querySelector<HTMLElement>('[data-task-id="doc-agent-docs"]');
+    assert(code);
+    assert(doc);
+    expect(doc.textContent).toContain('Document workspace');
+    expect(code.parentElement?.style.visibility).not.toBe('hidden');
+    setStore('focusMode', true);
+    expect(code.parentElement?.style.visibility).toBe('hidden');
+    expect(doc.parentElement?.style.visibility).toBe('visible');
+    setActiveTask('task');
+    expect(code.parentElement?.style.visibility).toBe('visible');
+    expect(doc.parentElement?.style.visibility).toBe('hidden');
+    expect(container.querySelector('[data-task-id="doc-agent-docs"]')).toBe(doc);
+    setStore('focusMode', false);
+    expect(doc.parentElement?.style.visibility).not.toBe('hidden');
+    setStore('activeDocumentProjectId', 'other-docs');
+    expect(container.querySelector('[data-task-id="doc-agent-other-docs"]')).toBe(doc);
+    setStore('activeDocumentProjectId', null);
+    expect(container.querySelector('[data-task-id="doc-agent-other-docs"]')).toBeNull();
+    expect(container.querySelector('[data-task-id="task"]')).toBe(code);
+  });
+
+  it('shows a document without coding tasks, including in focus mode without an agent', () => {
+    setStore('activeDocumentProjectId', 'docs');
+    setActiveTask('doc-agent-docs');
+    setStore('focusMode', true);
+    expect(store.activeTaskId).toBe('doc-agent-docs');
+    expect(container.textContent).not.toContain('No tasks yet');
+    const doc = container.querySelector<HTMLElement>('[data-task-id="doc-agent-docs"]');
+    expect(doc?.parentElement?.style.visibility).toBe('visible');
   });
 });
