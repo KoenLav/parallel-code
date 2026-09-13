@@ -24,6 +24,14 @@ const graphiteColors: PresetColors = {
 };
 
 const presetColors: Record<LookPreset, PresetColors> = {
+  obsidian: {
+    bgElevated: '#1e1e1e',
+    fg: '#ededed',
+    fgMuted: '#b5b5b5',
+    fgSubtle: '#919191',
+    border: '#333333',
+    accent: '#c9c9c9',
+  },
   classic: {
     bgElevated: '#2d2e32',
     fg: '#cccdd2',

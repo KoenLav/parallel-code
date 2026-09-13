@@ -18,7 +18,7 @@ export function InfoBar(props: InfoBarProps) {
 
   return (
     <div
-      class={props.class}
+      class={`info-bar ${props.class ?? ''}`}
       title={props.title}
       onClick={(e) => props.onClick?.(e)}
       onDblClick={() => props.onDblClick?.()}

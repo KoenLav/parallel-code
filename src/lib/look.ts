@@ -1,4 +1,5 @@
 export type LookPreset =
+  | 'obsidian'
   | 'classic'
   | 'graphite'
   | 'midnight'
@@ -22,6 +23,12 @@ export interface LookPresetOption {
 }
 
 export const LOOK_PRESETS: LookPresetOption[] = [
+  {
+    id: 'obsidian',
+    label: 'Obsidian',
+    description: 'Neutral charcoal surfaces, warm amber focus, and clean typography',
+    tone: 'dark',
+  },
   {
     id: 'islands-dark',
     label: 'Islands Dark',
@@ -101,7 +108,7 @@ export function presetsForTone(tone: 'light' | 'dark'): LookPresetOption[] {
 }
 
 export function defaultPresetForTone(tone: 'light' | 'dark'): LookPreset {
-  return tone === 'light' ? 'islands-light' : 'islands-dark';
+  return tone === 'light' ? 'islands-light' : 'obsidian';
 }
 
 const LOOK_PRESET_IDS = new Set<string>(LOOK_PRESETS.map((p) => p.id));

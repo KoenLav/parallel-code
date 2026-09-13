@@ -63,6 +63,7 @@ export function persistedSnapshot(): string {
               promptDraft: t.promptDraft,
               browserUrl: t.browserUrl,
               lastPrompt: t.lastPrompt,
+              promptHistory: t.promptHistory,
               name: t.name,
               gitIsolation: t.gitIsolation,
               baseBranch: t.baseBranch,

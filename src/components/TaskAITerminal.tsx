@@ -23,6 +23,7 @@ import { markDirty } from '../lib/terminalFitManager';
 import { isAgentAskingQuestion } from '../store/taskStatus';
 import { warn as logWarn } from '../lib/log';
 import { InfoBar } from './InfoBar';
+import { PromptHistory } from './PromptHistory';
 import { TerminalView } from './TerminalView';
 import { Dialog } from './Dialog';
 import { CloseIcon } from './icons';
@@ -236,7 +237,6 @@ export function TaskAITerminal(props: TaskAITerminalProps) {
       >
         <InfoBar
           allowOverflow
-          title={props.task.lastPrompt || infoBarStatus().title}
           onDblClick={() => {
             const prompt = props.task.lastPrompt;
             if (!prompt) return;
@@ -255,104 +255,89 @@ export function TaskAITerminal(props: TaskAITerminalProps) {
               'min-width': '0',
             }}
           >
-            <span
-              style={{
-                opacity: props.task.lastPrompt ? 1 : 0.4,
-                flex: '1',
-                'min-width': '0',
-                overflow: 'hidden',
-                'text-overflow': 'ellipsis',
-              }}
-            >
-              {props.task.lastPrompt ? `> ${props.task.lastPrompt}` : infoBarStatus().text}
-            </span>
-            <div
-              style={{
-                display: 'flex',
-                'align-items': 'center',
-                gap: '4px',
-                'flex-shrink': '0',
-              }}
-            >
-              <For each={props.task.agentIds}>
-                {(agentId, i) => {
-                  const agent = () => store.agents[agentId];
-                  const selected = () => props.selectedAgentId === agentId;
-                  return (
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        'align-items': 'center',
-                        height: '20px',
-                      }}
-                    >
-                      <button
-                        type="button"
-                        title={agent()?.def.description ?? agent()?.def.name}
-                        aria-pressed={selected()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          selectAgent(agentId);
-                        }}
+            <PromptHistory task={props.task} emptyLabel={infoBarStatus().text} />
+            <div class="agent-header-controls">
+              <div class="agent-header-tabs">
+                <For each={props.task.agentIds}>
+                  {(agentId, i) => {
+                    const agent = () => store.agents[agentId];
+                    const selected = () => props.selectedAgentId === agentId;
+                    return (
+                      <span
                         style={{
                           display: 'inline-flex',
                           'align-items': 'center',
-                          gap: '4px',
                           height: '20px',
-                          padding: '0 7px',
-                          background: selected() ? theme.bgSelected : theme.bgInput,
-                          border: selected()
-                            ? `1px solid ${theme.accent}`
-                            : `1px solid ${theme.border}`,
-                          'border-right':
-                            props.task.agentIds.length > 1
-                              ? 'none'
-                              : selected()
-                                ? `1px solid ${theme.accent}`
-                                : `1px solid ${theme.border}`,
-                          color: selected() ? theme.fg : theme.fgMuted,
-                          'border-radius': props.task.agentIds.length > 1 ? '5px 0 0 5px' : '5px',
-                          cursor: 'pointer',
-                          'font-size': sf(11),
-                          'font-family': "'JetBrains Mono', monospace",
                         }}
                       >
-                        <span>{agent()?.def.name ?? `Agent ${i() + 1}`}</span>
-                        <Show when={props.task.agentIds.length > 1}>
-                          <span style={{ opacity: 0.55 }}>#{i() + 1}</span>
-                        </Show>
-                      </button>
-                      <Show when={props.task.agentIds.length > 1}>
                         <button
                           type="button"
-                          title="Close AI agent"
+                          title={agent()?.def.description ?? agent()?.def.name}
+                          aria-pressed={selected()}
                           onClick={(e) => {
                             e.stopPropagation();
-                            void closeAgent(agentId);
+                            selectAgent(agentId);
                           }}
                           style={{
                             display: 'inline-flex',
                             'align-items': 'center',
-                            'justify-content': 'center',
-                            width: '20px',
+                            gap: '4px',
                             height: '20px',
+                            padding: '0 7px',
                             background: selected() ? theme.bgSelected : theme.bgInput,
                             border: selected()
                               ? `1px solid ${theme.accent}`
                               : `1px solid ${theme.border}`,
-                            color: theme.fgMuted,
-                            'border-radius': '0 5px 5px 0',
+                            'border-right':
+                              props.task.agentIds.length > 1
+                                ? 'none'
+                                : selected()
+                                  ? `1px solid ${theme.accent}`
+                                  : `1px solid ${theme.border}`,
+                            color: selected() ? theme.fg : theme.fgMuted,
+                            'border-radius': props.task.agentIds.length > 1 ? '5px 0 0 5px' : '5px',
                             cursor: 'pointer',
-                            padding: '0',
+                            'font-size': sf(11),
+                            'font-family': "'JetBrains Mono', monospace",
                           }}
                         >
-                          <CloseIcon size={11} />
+                          <span>{agent()?.def.name ?? `Agent ${i() + 1}`}</span>
+                          <Show when={props.task.agentIds.length > 1}>
+                            <span style={{ opacity: 0.55 }}>#{i() + 1}</span>
+                          </Show>
                         </button>
-                      </Show>
-                    </span>
-                  );
-                }}
-              </For>
+                        <Show when={props.task.agentIds.length > 1}>
+                          <button
+                            type="button"
+                            title="Close AI agent"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void closeAgent(agentId);
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              'align-items': 'center',
+                              'justify-content': 'center',
+                              width: '20px',
+                              height: '20px',
+                              background: selected() ? theme.bgSelected : theme.bgInput,
+                              border: selected()
+                                ? `1px solid ${theme.accent}`
+                                : `1px solid ${theme.border}`,
+                              color: theme.fgMuted,
+                              'border-radius': '0 5px 5px 0',
+                              cursor: 'pointer',
+                              padding: '0',
+                            }}
+                          >
+                            <CloseIcon size={11} />
+                          </button>
+                        </Show>
+                      </span>
+                    );
+                  }}
+                </For>
+              </div>
               <Show when={multipleAgents()}>
                 <button
                   type="button"
@@ -414,12 +399,13 @@ export function TaskAITerminal(props: TaskAITerminalProps) {
           </div>
         </InfoBar>
         <div
+          class="agent-terminal-row"
+          classList={{ 'agent-terminal-row-tabs': tabsMode() }}
           style={{
             flex: '1',
             display: 'flex',
             // Tabs mode stacks panes absolutely; a positioning context is needed.
             position: tabsMode() ? 'relative' : 'static',
-            gap: multipleAgents() && !tabsMode() ? '6px' : '0',
             overflow: 'hidden',
             background: multipleAgents() ? theme.taskContainerBg : 'transparent',
           }}
@@ -615,7 +601,6 @@ function AgentTerminalPane(props: {
         display: 'flex',
         'flex-direction': 'column',
         background: theme.taskPanelBg,
-        border: '1px solid transparent',
       }}
       onClick={(e) => {
         e.stopPropagation();
@@ -740,7 +725,7 @@ function AgentTerminalPane(props: {
                 }}
                 onData={(data) => markAgentOutput(a().id, data, props.task.id)}
                 onFileLink={props.onFileLink}
-                onPromptDetected={(text) => setLastPrompt(props.task.id, text)}
+                onPromptDetected={(text) => setLastPrompt(props.task.id, text, props.agentId)}
                 onReady={(focusFn) => props.onReady(a().id, focusFn)}
                 onStepNavReady={props.onStepNavReady}
                 fontSize={13}

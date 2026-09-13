@@ -75,7 +75,7 @@ export function TaskChangedFilesSection(props: TaskChangedFilesSectionProps) {
         height: '100%',
         'min-height': props.compact ? '56px' : '140px',
         'max-height': '40vh',
-        'min-width': '200px',
+        'min-width': '0',
         background: theme.taskPanelBg,
         display: 'flex',
         'flex-direction': 'column',
@@ -97,10 +97,20 @@ export function TaskChangedFilesSection(props: TaskChangedFilesSectionProps) {
           gap: '6px',
         }}
       >
-        <span style={{ 'flex-shrink': '0' }}>Changed Files</span>
-        <span style={{ flex: '1' }} />
+        <span
+          title="Changed Files"
+          style={{
+            flex: '1',
+            'min-width': '0',
+            overflow: 'hidden',
+            'white-space': 'nowrap',
+            'text-overflow': 'ellipsis',
+          }}
+        >
+          Changed Files
+        </span>
         <Show when={hasCommitNav()}>
-          <div style={{ display: 'flex', 'align-items': 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', 'align-items': 'center', gap: '6px', 'flex-shrink': '0' }}>
             <Show when={canShowTree()}>
               <CommitTreeOverlay
                 commits={props.commitList}

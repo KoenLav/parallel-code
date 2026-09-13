@@ -22,6 +22,7 @@ import { Sidebar } from './components/Sidebar';
 import { TilingLayout } from './components/TilingLayout';
 import { HelpDialog } from './components/HelpDialog';
 import { SettingsDialog } from './components/SettingsDialog';
+import { WorkspaceControls } from './components/WorkspaceControls';
 import { WindowTitleBar } from './components/WindowTitleBar';
 import { FocusModeTaskIndicators } from './components/FocusModeTaskIndicators';
 import { UsageStatusBar } from './components/UsageStatusBar';
@@ -83,7 +84,7 @@ import { setupAutosave } from './store/autosave';
 import { buildCustomThemeCss } from './lib/custom-theme';
 import { osIsDark } from './lib/os-appearance';
 import { applyAppearanceMode, markCustomThemesReady, loadCustomThemes } from './store/store';
-import { isMac, mod } from './lib/platform';
+import { isMac } from './lib/platform';
 import { createCtrlWheelZoomHandler } from './lib/wheelZoom';
 import { redrawAllTerminals } from './lib/terminalFitManager';
 import { ArenaOverlay } from './arena/ArenaOverlay';
@@ -858,6 +859,7 @@ function App() {
         </Show>
         <Show when={isMac}>
           <div class="mac-titlebar-spacer" data-tauri-drag-region>
+            <WorkspaceControls />
             <FocusModeTaskIndicators />
           </div>
         </Show>
@@ -902,36 +904,6 @@ function App() {
         <main style={{ flex: '1', display: 'flex', overflow: 'hidden' }}>
           <Show when={store.sidebarVisible}>
             <Sidebar />
-          </Show>
-          <Show when={!store.sidebarVisible}>
-            <button
-              class="icon-btn"
-              onClick={() => toggleSidebar()}
-              title={`Show sidebar (${mod}+B)`}
-              style={{
-                width: '24px',
-                'min-width': '24px',
-                height: 'calc(100% - 12px)',
-                margin: '6px 4px 6px 0',
-                display: 'flex',
-                'align-items': 'center',
-                'justify-content': 'center',
-                cursor: 'pointer',
-                color: theme.fgSubtle,
-                background: 'transparent',
-                'border-top': `2px dashed ${theme.border}`,
-                'border-right': `2px dashed ${theme.border}`,
-                'border-bottom': `2px dashed ${theme.border}`,
-                'border-left': 'none',
-                'border-radius': '0 12px 12px 0',
-                'user-select': 'none',
-                'flex-shrink': '0',
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" />
-              </svg>
-            </button>
           </Show>
           <div class="task-workspace">
             <TilingLayout />

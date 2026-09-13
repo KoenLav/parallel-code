@@ -11,6 +11,7 @@ import { sameDivergence } from '../lib/branch-divergence';
 import { badgeStyle } from '../lib/badgeStyle';
 import { revealItemInDir, openInEditor } from '../lib/shell';
 import { InfoBar } from './InfoBar';
+import { ProjectSwatch } from './ProjectSwatch';
 import { theme } from '../lib/theme';
 import { isMac } from '../lib/platform';
 import { parseGitHubUrl } from '../lib/github-url';
@@ -72,12 +73,6 @@ interface TaskBranchInfoBarProps {
 
 export function TaskBranchInfoBar(props: TaskBranchInfoBarProps) {
   const project = () => getProject(props.task.projectId);
-  // The project's colour rides the bar's left edge instead of an inline dot, so
-  // it reads on a different axis than the status circle stacked above it.
-  const projectStripe = () => {
-    const color = project()?.color;
-    return color ? { 'border-left': `3px solid ${color}` } : undefined;
-  };
   const mod = isMac ? 'Cmd' : 'Ctrl';
   const isPrUrl = (url: string | undefined): boolean => {
     const parsed = url ? parseGitHubUrl(url) : null;
@@ -147,7 +142,7 @@ export function TaskBranchInfoBar(props: TaskBranchInfoBarProps) {
   };
 
   return (
-    <InfoBar class="task-branch-info-bar" style={projectStripe()}>
+    <InfoBar class="task-branch-info-bar">
       <Show when={project()}>
         {(p) => (
           <button
@@ -158,6 +153,7 @@ export function TaskBranchInfoBar(props: TaskBranchInfoBarProps) {
             aria-label={`Project: ${p().name} · Project settings`}
             style={{ ...infoBarBtnStyle, margin: '0 8px 0 0' }}
           >
+            <ProjectSwatch color={p().color} />
             <span class="task-branch-project-label">{p().name}</span>
             <span class="task-branch-project-compact-label" aria-hidden="true">
               {projectInitials(p().name)}

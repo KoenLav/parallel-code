@@ -291,9 +291,8 @@ export function TilingLayout() {
                 }
                 style={{
                   height: '100%',
-                  // No vertical padding: the strip's own 2px is the whole
-                  // top/bottom gap, so a column lines up with the document
-                  // workspace and the sidebar island beside it.
+                  // The strip owns the vertical gutter, including space for
+                  // shadows on themes that use them.
                   padding: store.themePreset.startsWith('islands-')
                     ? focusMode()
                       ? '0'
@@ -518,9 +517,7 @@ export function TilingLayout() {
             'flex-direction': 'row',
             height: '100%',
             position: 'relative',
-            ...(focusMode()
-              ? { width: '100%', overflow: 'hidden' }
-              : { width: 'fit-content', 'min-width': '100%' }),
+            ...(focusMode() ? { width: '100%' } : { width: 'fit-content', 'min-width': '100%' }),
           }}
         >
           <Show when={!hasPanels() && !store.showNewTaskPanel}>
@@ -678,7 +675,7 @@ export function TilingLayout() {
                     height: '100%',
                     visibility: isActive ? 'visible' : 'hidden',
                     'pointer-events': isActive ? 'auto' : 'none',
-                    overflow: 'hidden',
+                    overflow: 'visible',
                   };
                 }
                 const s = sizeFor(child);
@@ -687,7 +684,9 @@ export function TilingLayout() {
                   width: `${s}px`,
                   'min-width': `${min}px`,
                   'flex-shrink': '0',
-                  overflow: 'hidden',
+                  // Panels clip their own content; let their shadows reach
+                  // into the gutter between tiles.
+                  overflow: isPlaceholder ? 'hidden' : 'visible',
                 };
               });
               const showHandle = () =>

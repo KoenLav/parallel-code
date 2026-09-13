@@ -164,7 +164,7 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
     <div
       ref={panelRef}
       tabIndex={-1}
-      class="focusable-panel"
+      class="task-canvas-panel focusable-panel"
       data-testid="task-canvas"
       data-fullscreen={fullscreen() ? 'true' : 'false'}
       data-panel-focused={isPanelFocused(props.task.id, 'canvas') ? 'true' : 'false'}

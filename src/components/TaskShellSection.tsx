@@ -25,22 +25,22 @@ import { mod } from '../lib/platform';
 import { extractLabel, consumePendingShellCommand } from '../lib/bookmarks';
 import type { Task } from '../store/types';
 
-/** The "open terminal" action is the one bordered button; bookmark launchers
- *  sit next to it as quiet text so a project with six shortcuts doesn't read
- *  as a row of equal tabs. Hover/focus borders come from `.icon-btn`. */
-const toolbarBtnStyle = (highlighted: boolean, bordered: boolean): JSX.CSSProperties => ({
-  background: bordered ? theme.taskPanelBg : 'transparent',
-  border: `1px solid ${highlighted ? theme.accent : bordered ? theme.border : 'transparent'}`,
-  color: theme.fgMuted,
+/** Outlined terminal launchers retain a clear boundary without a filled bar. */
+const toolbarBtnStyle = (highlighted: boolean, iconOnly = false): JSX.CSSProperties => ({
+  background: 'transparent',
+  border: `1px solid ${highlighted ? theme.borderFocus : theme.border}`,
+  color: highlighted ? theme.fg : theme.fgMuted,
   cursor: 'pointer',
   'border-radius': 'var(--radius-sm)',
-  // Chips fill most of the 28px bar: a 26px target is comfortable to hit, and
-  // the bar gives back the room by hugging its own edges.
-  padding: '6px 9px',
+  'box-sizing': 'border-box',
+  height: '26px',
+  width: iconOnly ? '26px' : undefined,
+  padding: iconOnly ? '0' : '0 9px',
   'font-size': sf(12),
-  'line-height': '1',
+  'line-height': '16px',
   display: 'flex',
   'align-items': 'center',
+  'justify-content': 'center',
   'flex-shrink': '0',
   gap: '5px',
 });
@@ -84,7 +84,7 @@ export function TaskShellSection(props: TaskShellSectionProps) {
   const hasShell = () => props.task.shellAgentIds.length > 0;
 
   // Intrinsic height the flex-first panel tree will size this panel to when
-  // it isn't pinned. Empty state collapses to the 28 px toolbar. With agents
+  // it isn't pinned. Empty state collapses to the 35 px toolbar. With agents
   // we pick 140 px as the natural default so the panel stays dragable down to
   // a useful "small terminal" state; focus mode scales up so the terminal has
   // room when it takes over the screen.
@@ -95,7 +95,7 @@ export function TaskShellSection(props: TaskShellSectionProps) {
   // the terminal output gets clipped by the wrapper's overflow:hidden. Fall
   // back to 0 in that case and let the wrapper's allocated size drive xterm.
   const intrinsicHeight = () => {
-    if (!hasShell()) return '28px';
+    if (!hasShell()) return '35px';
     if (store.focusMode && store.taskSplitMode[props.task.id]) return '0';
     if (store.focusMode) return 'max(200px, 33vh)';
     return '140px';
@@ -112,8 +112,6 @@ export function TaskShellSection(props: TaskShellSectionProps) {
         display: 'flex',
         'flex-direction': 'column',
         background: 'transparent',
-        'padding-top': hasShell() ? '0' : '3px',
-        'padding-bottom': hasShell() ? '0' : '3px',
       }}
     >
       <div
@@ -153,12 +151,13 @@ export function TaskShellSection(props: TaskShellSectionProps) {
           }
         }}
         style={{
-          height: '28px',
-          'min-height': '28px',
+          height: '35px',
+          'min-height': '35px',
           display: 'flex',
           'align-items': 'center',
-          padding: '0 5px',
+          padding: '4px 5px',
           background: 'transparent',
+          'box-sizing': 'border-box',
           gap: '4px',
           'overflow-x': 'auto',
           'overflow-y': 'hidden',
@@ -166,7 +165,7 @@ export function TaskShellSection(props: TaskShellSectionProps) {
         }}
       >
         <button
-          class="icon-btn"
+          class="shell-toolbar-button"
           onClick={(e) => {
             e.stopPropagation();
             setActiveTask(props.task.id);
@@ -178,12 +177,26 @@ export function TaskShellSection(props: TaskShellSectionProps) {
           aria-label="Open terminal"
           style={toolbarBtnStyle(shellToolbarIdx() === 0 && shellToolbarFocused(), true)}
         >
-          <span style={{ 'font-family': 'var(--font-mono)', 'font-size': sf(12) }}>&gt;_</span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.25"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            style={{ 'flex-shrink': '0' }}
+            aria-hidden="true"
+          >
+            <rect x="1.5" y="2.5" width="13" height="11" />
+            <path d="m4 6 2 2-2 2m4 0h3" />
+          </svg>
         </button>
         <For each={projectBookmarks()}>
           {(bookmark, i) => (
             <button
-              class="icon-btn"
+              class="shell-toolbar-button"
               onClick={(e) => {
                 e.stopPropagation();
                 setActiveTask(props.task.id);
@@ -192,7 +205,7 @@ export function TaskShellSection(props: TaskShellSectionProps) {
               }}
               tabIndex={-1}
               title={bookmark.command}
-              style={toolbarBtnStyle(shellToolbarIdx() === i() + 1 && shellToolbarFocused(), false)}
+              style={toolbarBtnStyle(shellToolbarIdx() === i() + 1 && shellToolbarFocused())}
             >
               <span>{extractLabel(bookmark.command)}</span>
             </button>
@@ -207,8 +220,6 @@ export function TaskShellSection(props: TaskShellSectionProps) {
             display: 'flex',
             overflow: 'hidden',
             background: theme.taskContainerBg,
-            gap: '6px',
-            'margin-top': '2px',
           }}
         >
           <For each={props.task.shellAgentIds}>

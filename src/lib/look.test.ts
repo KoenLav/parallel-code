@@ -31,8 +31,8 @@ describe('defaultPresetForTone', () => {
     expect(defaultPresetForTone('light')).toBe('islands-light');
   });
 
-  it('returns islands-dark for dark', () => {
-    expect(defaultPresetForTone('dark')).toBe('islands-dark');
+  it('returns obsidian for dark', () => {
+    expect(defaultPresetForTone('dark')).toBe('obsidian');
   });
 });
 

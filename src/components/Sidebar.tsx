@@ -6,7 +6,6 @@ import {
   pickAndAddProject,
   toggleNewTaskPanel,
   setActiveTask,
-  toggleSidebar,
   reorderTaskVisually,
   getTaskDotStatus,
   getTaskAttentionState,
@@ -19,7 +18,6 @@ import {
   getTaskFocusedPanel,
   getPanelUserSize,
   setPanelUserSize,
-  toggleSettingsDialog,
   setProjectTasksCollapsed,
   setProjectsCollapsed,
   setSidebarNeedsInputFirst,
@@ -48,14 +46,12 @@ import { AddProjectMenu } from './AddProjectMenu';
 import { ImportWorktreesDialog } from './ImportWorktreesDialog';
 import { SidebarFooter } from './SidebarFooter';
 import { IconButton } from './IconButton';
-import { UpdateButton } from './UpdateButton';
 import { StatusDot, getDotTooltip } from './StatusDot';
 import { ProjectSwatch } from './ProjectSwatch';
 import { TaskCurrentStateLine } from './TaskCurrentStateLine';
 import { TaskAgentStatusLine } from './TaskAgentStatusLine';
 import { theme } from '../lib/theme';
 import { sf } from '../lib/fontScale';
-import { mod } from '../lib/platform';
 import { abbreviateHomePath } from '../lib/path';
 import { formatRelativeAge } from '../lib/relativeAge';
 import { invoke } from '../lib/ipc';
@@ -721,59 +717,6 @@ export function Sidebar() {
           'user-select': 'none',
         }}
       >
-        {/* Logo + collapse */}
-        <div
-          style={{ display: 'flex', 'align-items': 'center', 'justify-content': 'space-between' }}
-        >
-          <div style={{ display: 'flex', 'align-items': 'center', gap: '8px', padding: '0 2px' }}>
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 56 56"
-              fill="none"
-              stroke={theme.fg}
-              stroke-width="4"
-              style={{ 'flex-shrink': '0' }}
-            >
-              <line x1="10" y1="6" x2="10" y2="50" />
-              <line x1="22" y1="6" x2="22" y2="50" />
-              <path d="M30 8 H47 V24 H30" />
-              <path d="M49 32 H32 V48 H49" />
-            </svg>
-            <span
-              style={{
-                'font-size': sf(15),
-                'font-weight': '600',
-                color: theme.fg,
-                'font-family': "'JetBrains Mono', monospace",
-              }}
-            >
-              ParallelCode
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <UpdateButton />
-            <IconButton
-              icon={
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 2.25a.75.75 0 0 1 .73.56l.2.72a4.48 4.48 0 0 1 1.04.43l.66-.37a.75.75 0 0 1 .9.13l.75.75a.75.75 0 0 1 .13.9l-.37.66c.17.33.31.68.43 1.04l.72.2a.75.75 0 0 1 .56.73v1.06a.75.75 0 0 1-.56.73l-.72.2a4.48 4.48 0 0 1-.43 1.04l.37.66a.75.75 0 0 1-.13.9l-.75.75a.75.75 0 0 1-.9.13l-.66-.37a4.48 4.48 0 0 1-1.04.43l-.2.72a.75.75 0 0 1-.73.56H6.94a.75.75 0 0 1-.73-.56l-.2-.72a4.48 4.48 0 0 1-1.04-.43l-.66.37a.75.75 0 0 1-.9-.13l-.75-.75a.75.75 0 0 1-.13-.9l.37-.66a4.48 4.48 0 0 1-.43-1.04l-.72-.2a.75.75 0 0 1-.56-.73V7.47a.75.75 0 0 1 .56-.73l.72-.2c.11-.36.26-.71.43-1.04l-.37-.66a.75.75 0 0 1 .13-.9l.75-.75a.75.75 0 0 1 .9-.13l.66.37c.33-.17.68-.31 1.04-.43l.2-.72a.75.75 0 0 1 .73-.56H8Zm-.53 3.22a2.5 2.5 0 1 0 1.06 4.88 2.5 2.5 0 0 0-1.06-4.88Z" />
-                </svg>
-              }
-              onClick={() => toggleSettingsDialog(true)}
-              title={`Settings (${mod}+,)`}
-            />
-            <IconButton
-              icon={
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M9.78 12.78a.75.75 0 0 1-1.06 0L4.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 1.06L6.06 8l3.72 3.72a.75.75 0 0 1 0 1.06Z" />
-                </svg>
-              }
-              onClick={() => toggleSidebar()}
-              title={`Collapse sidebar (${mod}+B)`}
-            />
-          </div>
-        </div>
-
         {/* Projects section */}
         <div
           style={{
@@ -975,7 +918,7 @@ export function Sidebar() {
           when={codeProjects().length > 0}
           fallback={
             <button
-              class="icon-btn"
+              class="icon-btn sidebar-create-btn"
               onClick={(e) => handleAddProject(e.currentTarget)}
               style={{
                 background: 'transparent',
@@ -1007,7 +950,7 @@ export function Sidebar() {
           }
         >
           <button
-            class="icon-btn"
+            class="icon-btn sidebar-create-btn"
             onClick={() => toggleNewTaskPanel(true)}
             style={{
               background: 'transparent',

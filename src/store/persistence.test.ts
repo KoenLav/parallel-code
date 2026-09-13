@@ -626,12 +626,12 @@ describe('loadState theme persistence', () => {
     setStore('customAgents', []);
   });
 
-  it('defaults to dark mode with islands-dark/islands-light when no theme fields saved', async () => {
+  it('defaults to dark mode with obsidian/islands-light when no theme fields saved', async () => {
     mockInvoke.mockResolvedValueOnce(basePayload());
     await loadState();
 
     expect(store.appearanceMode).toBe('dark');
-    expect(store.darkThemePreset).toBe('islands-dark');
+    expect(store.darkThemePreset).toBe('obsidian');
     expect(store.lightThemePreset).toBe('islands-light');
     expect(store.darkThemeCustomId).toBeNull();
     expect(store.lightThemeCustomId).toBeNull();
@@ -659,12 +659,36 @@ describe('loadState theme persistence', () => {
     expect(store.darkThemePreset).toBe('classic');
   });
 
-  it('falls back to islands-dark for an invalid darkThemePreset', async () => {
+  it('falls back to obsidian for an invalid darkThemePreset', async () => {
     mockInvoke.mockResolvedValueOnce(
       basePayload({ appearanceMode: 'dark', darkThemePreset: 'not-a-theme' }),
     );
     await loadState();
-    expect(store.darkThemePreset).toBe('islands-dark');
+    expect(store.darkThemePreset).toBe('obsidian');
+  });
+
+  it.each(['dark', 'light', 'system'])(
+    'preserves an omitted legacy dark slot in %s mode',
+    async (appearanceMode) => {
+      mockInvoke.mockResolvedValueOnce(basePayload({ appearanceMode }));
+      await loadState();
+      expect(store.darkThemePreset).toBe('islands-dark');
+    },
+  );
+
+  it('saves and restores Obsidian explicitly when using the new default', async () => {
+    setStore('darkThemePreset', 'obsidian');
+    setStore('themePreset', 'obsidian');
+    setStore('appearanceMode', 'dark');
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await saveState();
+    const savedCall = mockInvoke.mock.calls.find(([channel]) => channel === IPC.SaveAppState);
+    const json = (savedCall?.[1] as { json: string }).json;
+    expect(JSON.parse(json).darkThemePreset).toBe('obsidian');
+    setStore('darkThemePreset', 'classic');
+    mockInvoke.mockResolvedValueOnce(json);
+    await loadState();
+    expect(store.darkThemePreset).toBe('obsidian');
   });
 
   it('restores a valid lightThemePreset', async () => {
@@ -710,11 +734,11 @@ describe('loadState theme persistence', () => {
     expect(store.darkThemePreset).toBe('classic');
   });
 
-  it('backward compat: invalid old themePreset leaves dark mode with islands-dark', async () => {
+  it('backward compat: invalid old themePreset leaves dark mode with obsidian', async () => {
     mockInvoke.mockResolvedValueOnce(basePayload({ themePreset: 'legacy-unknown' }));
     await loadState();
     expect(store.appearanceMode).toBe('dark');
-    expect(store.darkThemePreset).toBe('islands-dark');
+    expect(store.darkThemePreset).toBe('obsidian');
   });
 });
 
@@ -1373,5 +1397,38 @@ describe('browser preview persistence', () => {
     const saved = JSON.parse(mockInvoke.mock.calls[0][1].json);
     expect(saved.tasks['task-1'].browserUrl).toBe(task.browserUrl);
     expect(saved.tasks['task-2'].browserUrl).toBe(task.browserUrl);
+  });
+});
+
+describe('prompt history persistence', () => {
+  it.each([false, true])('restores and saves history for collapsed=%s', async (collapsed) => {
+    const history = [
+      { text: 'First prompt' },
+      { text: 'Second\nmultiline prompt', sentAt: 1700000000000, agentName: 'Codex' },
+    ];
+    mockInvoke.mockResolvedValueOnce(
+      JSON.stringify({
+        projects: [{ id: 'project-1', name: 'Repo', path: '/repo', color: '#abc' }],
+        taskOrder: collapsed ? [] : ['task-1'],
+        collapsedTaskOrder: collapsed ? ['task-1'] : [],
+        tasks: {
+          'task-1': {
+            ...persistedTask(agentDef()),
+            collapsed,
+            promptHistory: [...history, null, { text: 123 }, { text: ' ' }],
+          },
+        },
+        activeTaskId: collapsed ? null : 'task-1',
+        sidebarVisible: true,
+      }),
+    );
+    await loadState();
+    expect(store.tasks['task-1'].promptHistory).toEqual(history);
+    mockInvoke.mockClear();
+    await saveState();
+    const savedCall = mockInvoke.mock.calls.find(([channel]) => channel === IPC.SaveAppState);
+    expect(savedCall).toBeDefined();
+    const saved = JSON.parse((savedCall?.[1] as { json: string }).json);
+    expect(saved.tasks['task-1'].promptHistory).toEqual(history);
   });
 });

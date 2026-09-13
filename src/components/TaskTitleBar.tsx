@@ -150,6 +150,9 @@ export function TaskTitleBar(props: TaskTitleBarProps) {
     return ci ? `Push to remote\n${ci}` : 'Push to remote';
   };
 
+  const statusDescription = () =>
+    getDotTooltip(getTaskDotStatus(props.task.id), getTaskAttentionState(props.task.id));
+
   function handleTitleMouseDown(e: MouseEvent) {
     handleDragReorder(e, {
       itemId: props.task.id,
@@ -165,18 +168,23 @@ export function TaskTitleBar(props: TaskTitleBarProps) {
         value={titleLabel()}
         onCommit={(v) => updateTaskName(props.task.id, v)}
         class="editable-text"
-        title={props.task.savedInitialPrompt}
+        title={props.task.savedInitialPrompt || titleLabel()}
         ref={(h) => props.onTitleEditRef(h)}
       />
       <div class="task-title-details">
-        <span class="task-title-status">
+        <span class="task-title-status" title={statusDescription()}>
           <StatusDot
             status={getTaskDotStatus(props.task.id)}
             size="md"
             attention={getTaskAttentionState(props.task.id)}
           />
           <span>
-            {getDotTooltip(getTaskDotStatus(props.task.id), getTaskAttentionState(props.task.id))}
+            <span>{statusDescription().split(' — ')[0]}</span>
+            <span class="task-status-explanation">
+              {statusDescription().includes(' — ')
+                ? ` — ${statusDescription().split(' — ').slice(1).join(' — ')}`
+                : ''}
+            </span>
           </span>
         </span>
         <Show when={props.task.gitIsolation === 'direct'}>
@@ -234,159 +242,165 @@ export function TaskTitleBar(props: TaskTitleBarProps) {
       </div>
       <div class="task-title-actions">
         <Show when={props.task.gitIsolation === 'worktree' && !isLandedTask()}>
-          <IconButton
-            icon={
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z" />
-              </svg>
-            }
-            onClick={() => props.onMerge()}
-            title={props.task.baseBranch ? `Merge into ${props.task.baseBranch}` : 'Merge'}
-          />
-          <div style={{ position: 'relative', display: 'inline-flex' }}>
-            <Show
-              when={!props.pushing}
-              fallback={
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    'align-items': 'center',
-                    'justify-content': 'center',
-                    padding: '4px',
-                    border: `1px solid ${theme.border}`,
-                    'border-radius': 'var(--radius-sm)',
-                  }}
-                >
-                  <span class="inline-spinner" style={{ width: '14px', height: '14px' }} />
-                </div>
+          <div class="task-action-group" role="group" aria-label="Git actions">
+            <IconButton
+              icon={
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z" />
+                </svg>
               }
-            >
-              <IconButton
-                icon={
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path
-                      d="M4.75 8a.75.75 0 0 1 .75-.75h5.19L8.22 4.78a.75.75 0 0 1 1.06-1.06l3.5 3.5a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 1 1-1.06-1.06l2.47-2.47H5.5A.75.75 0 0 1 4.75 8Z"
-                      transform="rotate(-90 8 8)"
-                    />
-                  </svg>
+              onClick={() => props.onMerge()}
+              title={props.task.baseBranch ? `Merge into ${props.task.baseBranch}` : 'Merge'}
+            />
+            <div style={{ position: 'relative', display: 'inline-flex' }}>
+              <Show
+                when={!props.pushing}
+                fallback={
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      'align-items': 'center',
+                      'justify-content': 'center',
+                      padding: '4px',
+                      border: `1px solid ${theme.border}`,
+                      'border-radius': 'var(--radius-sm)',
+                    }}
+                  >
+                    <span class="inline-spinner" style={{ width: '14px', height: '14px' }} />
+                  </div>
                 }
-                onClick={() => props.onPush()}
-                title={pushTitle()}
-              />
-            </Show>
-            <Show
-              when={ciChecks()}
-              fallback={
-                <Show when={props.pushSuccess}>
+              >
+                <IconButton
+                  icon={
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                      <path
+                        d="M4.75 8a.75.75 0 0 1 .75-.75h5.19L8.22 4.78a.75.75 0 0 1 1.06-1.06l3.5 3.5a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 1 1-1.06-1.06l2.47-2.47H5.5A.75.75 0 0 1 4.75 8Z"
+                        transform="rotate(-90 8 8)"
+                      />
+                    </svg>
+                  }
+                  onClick={() => props.onPush()}
+                  title={pushTitle()}
+                />
+              </Show>
+              <Show
+                when={ciChecks()}
+                fallback={
+                  <Show when={props.pushSuccess}>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: '-4px',
+                        right: '-4px',
+                        width: '12px',
+                        height: '12px',
+                        'border-radius': '50%',
+                        background: theme.success,
+                        display: 'flex',
+                        'align-items': 'center',
+                        'justify-content': 'center',
+                        'pointer-events': 'none',
+                      }}
+                    >
+                      <svg width="8" height="8" viewBox="0 0 16 16" fill="white">
+                        <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" />
+                      </svg>
+                    </div>
+                  </Show>
+                }
+              >
+                {(c) => (
                   <div
                     style={{
                       position: 'absolute',
                       bottom: '-4px',
                       right: '-4px',
-                      width: '12px',
-                      height: '12px',
+                      width: '14px',
+                      height: '14px',
                       'border-radius': '50%',
-                      background: theme.success,
+                      background:
+                        c().overall === 'pending'
+                          ? 'transparent'
+                          : c().overall === 'success'
+                            ? theme.success
+                            : theme.error,
                       display: 'flex',
                       'align-items': 'center',
                       'justify-content': 'center',
+                      color: c().overall === 'pending' ? theme.warning : 'white',
                       'pointer-events': 'none',
                     }}
                   >
-                    <svg width="8" height="8" viewBox="0 0 16 16" fill="white">
-                      <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" />
-                    </svg>
+                    <Show when={c().overall === 'pending'}>
+                      <span class="inline-spinner" style={{ width: '12px', height: '12px' }} />
+                    </Show>
+                    <Show when={c().overall === 'success'}>
+                      <CheckIcon size={9} />
+                    </Show>
+                    <Show when={c().overall === 'failure'}>
+                      <CloseIcon size={9} />
+                    </Show>
                   </div>
-                </Show>
-              }
-            >
-              {(c) => (
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: '-4px',
-                    right: '-4px',
-                    width: '14px',
-                    height: '14px',
-                    'border-radius': '50%',
-                    background:
-                      c().overall === 'pending'
-                        ? 'transparent'
-                        : c().overall === 'success'
-                          ? theme.success
-                          : theme.error,
-                    display: 'flex',
-                    'align-items': 'center',
-                    'justify-content': 'center',
-                    color: c().overall === 'pending' ? theme.warning : 'white',
-                    'pointer-events': 'none',
-                  }}
-                >
-                  <Show when={c().overall === 'pending'}>
-                    <span class="inline-spinner" style={{ width: '12px', height: '12px' }} />
-                  </Show>
-                  <Show when={c().overall === 'success'}>
-                    <CheckIcon size={9} />
-                  </Show>
-                  <Show when={c().overall === 'failure'}>
-                    <CloseIcon size={9} />
-                  </Show>
-                </div>
-              )}
-            </Show>
+                )}
+              </Show>
+            </div>
           </div>
         </Show>
-        <IconButton
-          icon={
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              style={{ color: isTaskCanvasVisible(props.task) ? theme.accent : undefined }}
-            >
-              <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
-              <path d="M10 2.75v10.5" />
-            </svg>
-          }
-          onClick={() =>
-            isTaskCanvasVisible(props.task)
-              ? closeTaskCanvas(props.task.id)
-              : openTaskCanvas(props.task.id)
-          }
-          title={isTaskCanvasVisible(props.task) ? 'Close canvas' : 'Open canvas'}
-        />
-        <IconButton
-          icon={
-            store.focusMode ? (
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M5.5 2.75A.75.75 0 0 0 4.75 2H2.5a.5.5 0 0 0-.5.5v2.25a.75.75 0 0 0 1.5 0V3.5h1.25a.75.75 0 0 0 .75-.75ZM11.25 2a.75.75 0 0 0 0 1.5H12.5v1.25a.75.75 0 0 0 1.5 0V2.5a.5.5 0 0 0-.5-.5h-2.25ZM3.5 11.25a.75.75 0 0 0-1.5 0V13.5a.5.5 0 0 0 .5.5h2.25a.75.75 0 0 0 0-1.5H3.5v-1.25ZM14 11.25a.75.75 0 0 0-1.5 0v1.25h-1.25a.75.75 0 0 0 0 1.5H13.5a.5.5 0 0 0 .5-.5v-2.25Z" />
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M2.75 5.5A.75.75 0 0 0 3.5 4.75V3.5h1.25a.75.75 0 0 0 0-1.5H2.5a.5.5 0 0 0-.5.5v2.25c0 .414.336.75.75.75ZM12.5 4.75a.75.75 0 0 0 1.5 0V2.5a.5.5 0 0 0-.5-.5h-2.25a.75.75 0 0 0 0 1.5h1.25v1.25ZM3.5 11.25a.75.75 0 0 0-1.5 0V13.5a.5.5 0 0 0 .5.5h2.25a.75.75 0 0 0 0-1.5H3.5v-1.25ZM13.25 10.5a.75.75 0 0 0-.75.75v1.25h-1.25a.75.75 0 0 0 0 1.5H13.5a.5.5 0 0 0 .5-.5v-2.25a.75.75 0 0 0-.75-.75Z" />
-              </svg>
-            )
-          }
-          onClick={() => {
-            toggleTaskFocusMode(props.task.id);
-          }}
-          title={store.focusMode ? 'Exit focus mode' : 'Focus on this task'}
-        />
-        <Show when={!props.task.coordinatorMode}>
+        <div class="task-action-group" role="group" aria-label="View actions">
           <IconButton
             icon={
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M2 8a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8Z" />
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                style={{ color: isTaskCanvasVisible(props.task) ? theme.accent : undefined }}
+              >
+                <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
+                <path d="M10 2.75v10.5" />
               </svg>
             }
-            onClick={() => collapseTask(props.task.id)}
-            title="Collapse task"
+            onClick={() =>
+              isTaskCanvasVisible(props.task)
+                ? closeTaskCanvas(props.task.id)
+                : openTaskCanvas(props.task.id)
+            }
+            title={isTaskCanvasVisible(props.task) ? 'Close canvas' : 'Open canvas'}
           />
-        </Show>
-        <IconButton icon={<CloseIcon />} onClick={() => props.onClose()} title="Close task" />
+          <IconButton
+            icon={
+              store.focusMode ? (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M5.5 2.75A.75.75 0 0 0 4.75 2H2.5a.5.5 0 0 0-.5.5v2.25a.75.75 0 0 0 1.5 0V3.5h1.25a.75.75 0 0 0 .75-.75ZM11.25 2a.75.75 0 0 0 0 1.5H12.5v1.25a.75.75 0 0 0 1.5 0V2.5a.5.5 0 0 0-.5-.5h-2.25ZM3.5 11.25a.75.75 0 0 0-1.5 0V13.5a.5.5 0 0 0 .5.5h2.25a.75.75 0 0 0 0-1.5H3.5v-1.25ZM14 11.25a.75.75 0 0 0-1.5 0v1.25h-1.25a.75.75 0 0 0 0 1.5H13.5a.5.5 0 0 0 .5-.5v-2.25Z" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2.75 5.5A.75.75 0 0 0 3.5 4.75V3.5h1.25a.75.75 0 0 0 0-1.5H2.5a.5.5 0 0 0-.5.5v2.25c0 .414.336.75.75.75ZM12.5 4.75a.75.75 0 0 0 1.5 0V2.5a.5.5 0 0 0-.5-.5h-2.25a.75.75 0 0 0 0 1.5h1.25v1.25ZM3.5 11.25a.75.75 0 0 0-1.5 0V13.5a.5.5 0 0 0 .5.5h2.25a.75.75 0 0 0 0-1.5H3.5v-1.25ZM13.25 10.5a.75.75 0 0 0-.75.75v1.25h-1.25a.75.75 0 0 0 0 1.5H13.5a.5.5 0 0 0 .5-.5v-2.25a.75.75 0 0 0-.75-.75Z" />
+                </svg>
+              )
+            }
+            onClick={() => {
+              toggleTaskFocusMode(props.task.id);
+            }}
+            title={store.focusMode ? 'Exit focus mode' : 'Focus on this task'}
+          />
+        </div>
+        <div class="task-action-group" role="group" aria-label="Task actions">
+          <Show when={!props.task.coordinatorMode}>
+            <IconButton
+              icon={
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 8a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8Z" />
+                </svg>
+              }
+              onClick={() => collapseTask(props.task.id)}
+              title="Collapse task"
+            />
+          </Show>
+          <IconButton icon={<CloseIcon />} onClick={() => props.onClose()} title="Close task" />
+        </div>
       </div>
     </div>
   );

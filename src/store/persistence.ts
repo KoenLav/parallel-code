@@ -24,7 +24,7 @@ import type {
 import type { AgentDef } from '../ipc/types';
 import { inferDockerSource } from '../lib/docker';
 import { DEFAULT_TERMINAL_FONT } from '../lib/fonts';
-import { isLookPreset } from '../lib/look';
+import { defaultPresetForTone, isLookPreset } from '../lib/look';
 import { validateCustomTheme, parseThemeCss, themeToCss } from '../lib/custom-theme';
 import type { CustomTheme } from '../lib/custom-theme';
 import { syncTerminalCounter } from './terminals';
@@ -110,6 +110,25 @@ function validPromptedAgentIndexes(value: unknown): number[] | undefined {
   return valid.length > 0 ? valid : undefined;
 }
 
+function restoredPromptHistory(value: unknown): Task['promptHistory'] {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || !('text' in entry)) return [];
+    if (typeof entry.text !== 'string' || !entry.text.trim()) return [];
+    return [
+      {
+        text: entry.text,
+        sentAt:
+          'sentAt' in entry && typeof entry.sentAt === 'number' && Number.isFinite(entry.sentAt)
+            ? entry.sentAt
+            : undefined,
+        agentName:
+          'agentName' in entry && typeof entry.agentName === 'string' ? entry.agentName : undefined,
+      },
+    ];
+  });
+}
+
 function validAgentId(value: unknown, agentIds: string[]): string | undefined {
   return typeof value === 'string' && agentIds.includes(value) ? value : undefined;
 }
@@ -160,6 +179,7 @@ function toPersistedTask(task: Task, agentDefs: AgentDef[], collapsed?: boolean)
     notes: task.notes,
     promptDraft: task.promptDraft,
     lastPrompt: task.lastPrompt,
+    promptHistory: task.promptHistory,
     promptedAgentIds: task.promptedAgentIds,
     initialPrompt: task.initialPrompt,
     shellCount: task.shellAgentIds.length,
@@ -266,7 +286,7 @@ export async function saveState(): Promise<void> {
     lightThemePreset:
       store.lightThemePreset !== 'islands-light' ? store.lightThemePreset : undefined,
     lightThemeCustomId: store.lightThemeCustomId ?? undefined,
-    darkThemePreset: store.darkThemePreset !== 'islands-dark' ? store.darkThemePreset : undefined,
+    darkThemePreset: store.darkThemePreset,
     darkThemeCustomId: store.darkThemeCustomId ?? undefined,
     coordinatorModeEnabled: store.coordinatorModeEnabled || undefined,
     documentWorkspacesEnabled: store.documentWorkspacesEnabled || undefined,
@@ -633,7 +653,13 @@ export async function loadState(): Promise<void> {
         savedMode === 'light' || savedMode === 'dark' || savedMode === 'system'
           ? savedMode
           : 'dark';
-      s.darkThemePreset = isLookPreset(raw.darkThemePreset) ? raw.darkThemePreset : 'islands-dark';
+      // Older saves omitted the Islands Dark slot. Preserve that preference;
+      // new saves write the slot explicitly so future defaults can change safely.
+      s.darkThemePreset = isLookPreset(raw.darkThemePreset)
+        ? raw.darkThemePreset
+        : raw.darkThemePreset === undefined && savedMode
+          ? 'islands-dark'
+          : defaultPresetForTone('dark');
       s.lightThemePreset = isLookPreset(raw.lightThemePreset)
         ? raw.lightThemePreset
         : 'islands-light';
@@ -753,6 +779,7 @@ export async function loadState(): Promise<void> {
           promptDraft: typeof pt.promptDraft === 'string' ? pt.promptDraft : undefined,
           browserUrl: typeof pt.browserUrl === 'string' ? pt.browserUrl : undefined,
           lastPrompt: pt.lastPrompt,
+          promptHistory: restoredPromptHistory(pt.promptHistory),
           promptedAgentIds: restoredPromptedAgentIds(pt, agentIds),
           initialPrompt: typeof pt.initialPrompt === 'string' ? pt.initialPrompt : undefined,
           gitIsolation: legacy.gitIsolation ?? (legacy.directMode ? 'direct' : 'worktree'),
@@ -864,6 +891,7 @@ export async function loadState(): Promise<void> {
           promptDraft: typeof pt.promptDraft === 'string' ? pt.promptDraft : undefined,
           browserUrl: typeof pt.browserUrl === 'string' ? pt.browserUrl : undefined,
           lastPrompt: pt.lastPrompt,
+          promptHistory: restoredPromptHistory(pt.promptHistory),
           promptedAgentIds: restoredPromptedAgentIds(pt, []),
           initialPrompt: typeof pt.initialPrompt === 'string' ? pt.initialPrompt : undefined,
           gitIsolation:

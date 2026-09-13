@@ -420,12 +420,12 @@ export function TaskPanel(props: TaskPanelProps) {
     content: () => stepsSectionEl,
   };
 
-  // With no terminals open the shell section collapses to its 28 px toolbar.
+  // With no terminals open the shell section collapses to its 35 px toolbar.
   // Mark it noPin so dragging an adjacent handle can't pin it past content
   // size and leave a visible band of empty space above the AI terminal.
   const shellSectionChild: PanelChild = {
     id: 'shell-section',
-    minSize: 28,
+    minSize: 35,
     noPin: () => props.task.shellAgentIds.length === 0,
     content: () => shellSectionEl,
   };
@@ -549,8 +549,15 @@ export function TaskPanel(props: TaskPanelProps) {
       </Show>
     </div>
   );
-  const mainChild: PanelChild = { id: 'main', minSize: 360, content: () => mainEl };
   const canvasVisible = () => isTaskCanvasVisible(props.task);
+  const mainChild: PanelChild = {
+    id: 'main',
+    // The canvas needs a usable neighbor; a lone body must fit a 300px task tile.
+    get minSize() {
+      return canvasVisible() ? 360 : 0;
+    },
+    content: () => mainEl,
+  };
   const canvasChild: PanelChild = {
     id: 'canvas',
     minSize: CANVAS_MIN_WIDTH,

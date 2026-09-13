@@ -141,8 +141,8 @@ describe('TaskBranchInfoBar project chip', () => {
 
     const html = renderToString(() => TaskBranchInfoBar({ task, onEditProject: vi.fn() }));
 
-    expect(html).not.toContain('class="project-swatch"');
-    expect(html).toContain('border-left:3px solid hsl(210, 70%, 75%)');
+    expect(html).toContain('class="project-swatch"');
+    expect(html).toContain('background:hsl(210, 70%, 75%)');
     expect(html).toContain('class="task-branch-project-label">parallel-code</span>');
     expect(html).toContain('class="task-branch-project-compact-label"');
     expect(html).toContain('>PC</span>');

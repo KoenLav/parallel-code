@@ -157,6 +157,7 @@ import {
   mergeTask,
   pushTask,
   sendPrompt,
+  setLastPrompt,
   pasteDelayMs,
   markTaskUserActivity,
   setTaskPromptDraftActive,
@@ -1078,6 +1079,34 @@ describe('sendPrompt', () => {
     await sendPrompt('task-1', 'agent-1', 'line 1\nline 2');
 
     expect(writePayloads()).toEqual(['\x1b[I', '\x1b[200~line 1\nline 2\x1b[201~', '\r']);
+  });
+
+  it('records repeated sent prompts separately and preserves the legacy last prompt', async () => {
+    mockTasks['task-1'].lastPrompt = 'Earlier prompt';
+    mockAgents['agent-1'] = { status: 'running', def: { name: 'Codex' } };
+    await sendPrompt('task-1', 'agent-1', 'continue');
+    await sendPrompt('task-1', 'agent-1', 'continue');
+    expect(mockTasks['task-1'].promptHistory).toEqual([
+      { text: 'Earlier prompt' },
+      { text: 'continue', sentAt: expect.any(Number), agentName: 'Codex' },
+      { text: 'continue', sentAt: expect.any(Number), agentName: 'Codex' },
+    ]);
+  });
+
+  it('records terminal-entered prompts, but ignores empty input and removed tasks', () => {
+    setLastPrompt('task-1', 'Typed in the terminal', 'agent-1');
+    setLastPrompt('task-1', '   ', 'agent-1');
+    setLastPrompt('missing', 'Do not recreate this task', 'agent-1');
+    expect(mockTasks['task-1'].promptHistory).toHaveLength(1);
+    expect(mockTasks['task-1'].lastPrompt).toBe('Typed in the terminal');
+    expect(mockTasks.missing).toBeUndefined();
+  });
+
+  it('does not record a prompt when sending fails', async () => {
+    mockInvoke.mockRejectedValueOnce(new Error('PTY closed'));
+    await expect(sendPrompt('task-1', 'agent-1', 'not sent')).rejects.toThrow('PTY closed');
+    expect(mockTasks['task-1'].promptHistory).toBeUndefined();
+    expect(mockTasks['task-1'].lastPrompt).toBe('');
   });
 
   it.each(['landed_pending_review', 'landed_cleanup_failed', 'reviewed'] as const)(

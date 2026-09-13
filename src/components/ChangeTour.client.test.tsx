@@ -112,7 +112,7 @@ describe('guided tour', () => {
     const { host } = mount();
     const button = host.querySelector('button');
     if (!button?.parentElement) throw new Error('Missing generate control');
-    expect(button.textContent).toBe('Tour these changes');
+    expect(button.textContent).toBe('Generate tour');
     expect(host.querySelectorAll('button')).toHaveLength(1);
     button.parentElement.dispatchEvent(new MouseEvent('mouseenter'));
     expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('MiniMax-M2.7');
@@ -187,7 +187,7 @@ describe('guided tour', () => {
     expect(host.querySelector('button')).toBeNull();
     expect(invoke).not.toHaveBeenCalled();
     setDisabled(false);
-    expect(host.querySelector('button')?.textContent).toBe('Tour these changes');
+    expect(host.querySelector('button')?.textContent).toBe('Generate tour');
     setDisabled(true);
     expect(host.querySelector('button')).toBeNull();
   });

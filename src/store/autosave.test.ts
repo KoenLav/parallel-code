@@ -80,29 +80,36 @@ describe('autosave snapshot includes new-task-default fields', () => {
     }
   });
 
-  it.each(['promptDraft', 'browserUrl'] as const)('%s changes the snapshot', (field) => {
-    const taskId = 'autosave-draft-task';
-    const task: Task = {
-      id: taskId,
-      name: taskId,
-      projectId: 'p1',
-      branchName: 'feature/draft',
-      worktreePath: '/tmp/autosave-draft-task',
-      agentIds: [],
-      shellAgentIds: [],
-      notes: '',
-      lastPrompt: '',
-      gitIsolation: 'worktree',
-    };
-    setStore('tasks', taskId, task);
-    setStore('taskOrder', (order) => [...order, taskId]);
-    try {
-      const before = persistedSnapshot();
-      setStore('tasks', taskId, field, 'changed persisted value');
-      expect(persistedSnapshot()).not.toBe(before);
-    } finally {
-      setStore('taskOrder', (order) => order.filter((id) => id !== taskId));
-      setStore('tasks', taskId, undefined as unknown as Task);
-    }
-  });
+  it.each(['promptDraft', 'browserUrl', 'promptHistory'] as const)(
+    '%s changes the snapshot',
+    (field) => {
+      const taskId = 'autosave-draft-task';
+      const task: Task = {
+        id: taskId,
+        name: taskId,
+        projectId: 'p1',
+        branchName: 'feature/draft',
+        worktreePath: '/tmp/autosave-draft-task',
+        agentIds: [],
+        shellAgentIds: [],
+        notes: '',
+        lastPrompt: '',
+        gitIsolation: 'worktree',
+      };
+      setStore('tasks', taskId, task);
+      setStore('taskOrder', (order) => [...order, taskId]);
+      try {
+        const before = persistedSnapshot();
+        if (field === 'promptHistory') {
+          setStore('tasks', taskId, 'promptHistory', [{ text: 'Repeated prompt', sentAt: 1 }]);
+        } else {
+          setStore('tasks', taskId, field, 'changed persisted value');
+        }
+        expect(persistedSnapshot()).not.toBe(before);
+      } finally {
+        setStore('taskOrder', (order) => order.filter((id) => id !== taskId));
+        setStore('tasks', taskId, undefined as unknown as Task);
+      }
+    },
+  );
 });

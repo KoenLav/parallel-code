@@ -1,6 +1,7 @@
 import { createStore } from 'solid-js/store';
 import { DEFAULT_TERMINAL_FONT } from '../lib/fonts';
 import { getLocalDateKey } from '../lib/date';
+import { defaultPresetForTone } from '../lib/look';
 import type { AppStore, UsageState } from './types';
 
 const EMPTY_USAGE: UsageState = {
@@ -48,11 +49,11 @@ export const [store, setStore] = createStore<AppStore>({
   mergedLinesRemoved: 0,
   terminalFont: DEFAULT_TERMINAL_FONT,
   terminalScreenReaderMode: false,
-  themePreset: 'islands-dark',
+  themePreset: defaultPresetForTone('dark'),
   appearanceMode: 'dark',
   lightThemePreset: 'islands-light',
   lightThemeCustomId: null,
-  darkThemePreset: 'islands-dark',
+  darkThemePreset: defaultPresetForTone('dark'),
   darkThemeCustomId: null,
   showPromptInput: true,
   fontSmoothing: true,

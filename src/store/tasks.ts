@@ -745,7 +745,7 @@ export async function sendPrompt(taskId: string, agentId: string, text: string):
   );
   await new Promise((r) => setTimeout(r, pasteDelayMs(effectiveText)));
   await writeToAgentWhenReady(taskId, agentId, '\r');
-  setStore('tasks', taskId, 'lastPrompt', text);
+  setLastPrompt(taskId, text, agentId);
   if (task && !hasPromptedAgent) {
     setStore('tasks', taskId, 'promptedAgentIds', [...promptedAgentIds, agentId]);
     if (isQueuedInitialPrompt) setStore('tasks', taskId, 'initialPrompt', undefined);
@@ -753,7 +753,15 @@ export async function sendPrompt(taskId: string, agentId: string, text: string):
   }
 }
 
-export function setLastPrompt(taskId: string, text: string): void {
+export function setLastPrompt(taskId: string, text: string, agentId?: string): void {
+  const task = store.tasks[taskId];
+  if (!task || !text.trim()) return;
+  // Preserve the one prompt available in saves made before history was recorded.
+  const history = task.promptHistory ?? (task.lastPrompt ? [{ text: task.lastPrompt }] : []);
+  setStore('tasks', taskId, 'promptHistory', [
+    ...history,
+    { text, sentAt: Date.now(), agentName: agentId ? store.agents[agentId]?.def?.name : undefined },
+  ]);
   setStore('tasks', taskId, 'lastPrompt', text);
 }
 

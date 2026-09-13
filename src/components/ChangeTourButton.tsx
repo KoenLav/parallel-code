@@ -63,14 +63,7 @@ export function ChangeTourButton(props: {
   });
   return (
     <Show when={!props.disabled || props.tour.loading() || ready()}>
-      <div
-        style={{
-          padding: '6px 8px',
-          'border-top': `1px solid ${theme.border}`,
-          'flex-shrink': '0',
-          'font-size': sf(12),
-        }}
-      >
+      <div class="change-tour-footer">
         <div
           ref={controls}
           onMouseEnter={openHelp}
@@ -82,16 +75,9 @@ export function ChangeTourButton(props: {
             if (!(event.relatedTarget instanceof Node) || !controls?.contains(event.relatedTarget))
               closeHelp();
           }}
-          style={{
-            display: 'flex',
-            'justify-content': 'flex-end',
-            'align-items': 'center',
-            gap: '6px',
-            'flex-wrap': 'wrap',
-          }}
         >
           <button
-            class="review-control"
+            class="change-tour-action"
             disabled={props.disabled && !props.tour.loading() && !ready()}
             aria-busy={props.tour.loading()}
             aria-describedby={helpOpen() ? helpId : undefined}
@@ -106,30 +92,54 @@ export function ChangeTourButton(props: {
               if (props.tour.loading()) props.tour.cancel();
               else props.onClick();
             }}
-            style={{
-              display: 'flex',
-              'align-items': 'center',
-              gap: '6px',
-              'max-width': '100%',
-              'text-align': 'left',
-            }}
           >
-            <Show when={props.tour.loading()}>
+            <Show
+              when={props.tour.loading()}
+              fallback={
+                <Show
+                  when={ready()}
+                  fallback={
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.25"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="4" cy="3" r="1.5" />
+                      <circle cx="12" cy="13" r="1.5" />
+                      <path d="M5.5 3h5a2.5 2.5 0 0 1 0 5h-5a2.5 2.5 0 0 0 0 5h5" />
+                    </svg>
+                  }
+                >
+                  <span
+                    aria-label="Tour ready"
+                    style={{
+                      color: theme.success,
+                      width: '14px',
+                      'flex-shrink': '0',
+                      'text-align': 'center',
+                    }}
+                  >
+                    ✓
+                  </span>
+                </Show>
+              }
+            >
               <span class="inline-spinner" aria-hidden="true" />
             </Show>
-            <Show when={!props.tour.loading() && ready()}>
-              <span aria-label="Tour ready" style={{ color: theme.success }}>
-                ✓
-              </span>
-            </Show>
-            <span>
+            <span class="change-tour-action-label">
               {props.tour.loading()
                 ? props.tour.progress()
                 : ready()
                   ? 'Start tour'
                   : props.tour.error()
                     ? 'Retry tour'
-                    : 'Tour these changes'}
+                    : 'Generate tour'}
               <Show when={props.tour.loading()}>
                 <span style={{ display: 'block', color: theme.fgMuted, 'font-size': sf(11) }}>
                   {props.tour.progress() === 'Reading changes…'
@@ -141,6 +151,19 @@ export function ChangeTourButton(props: {
                 </span>
               </Show>
             </span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d={props.tour.loading() ? 'm4 4 8 8M12 4l-8 8' : 'M3 8h10m-4-4 4 4-4 4'} />
+            </svg>
           </button>
         </div>
         <Show when={helpOpen()}>
@@ -192,7 +215,12 @@ export function ChangeTourButton(props: {
         <Show when={props.tour.error()}>
           <p
             role="alert"
-            style={{ color: theme.error, margin: '6px 0 0', 'overflow-wrap': 'anywhere' }}
+            style={{
+              color: theme.error,
+              margin: '0',
+              padding: '6px 10px',
+              'overflow-wrap': 'anywhere',
+            }}
           >
             {props.tour.error()}
           </p>

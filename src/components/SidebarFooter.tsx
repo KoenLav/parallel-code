@@ -1,4 +1,4 @@
-import { createMemo, createEffect, onCleanup, Show, type JSX } from 'solid-js';
+import { createMemo, createEffect, onCleanup, Show } from 'solid-js';
 import {
   store,
   getMergedTasksTodayCount,
@@ -10,40 +10,9 @@ import {
   stopMCPStatusPolling,
 } from '../store/store';
 import { theme } from '../lib/theme';
-import { sf } from '../lib/fontScale';
 import { alt, mod } from '../lib/platform';
 
-const footerButtonStyle = (highlighted: boolean): JSX.CSSProperties => ({
-  flex: '1',
-  'min-width': '0',
-  display: 'flex',
-  'align-items': 'center',
-  'justify-content': 'center',
-  gap: '6px',
-  background: 'transparent',
-  border: `1px solid ${highlighted ? theme.success : theme.border}`,
-  'border-radius': 'var(--radius-md)',
-  padding: '6px 10px',
-  'font-size': sf(12),
-  'font-weight': '500',
-  'font-family': 'inherit',
-  color: highlighted ? theme.success : theme.fgMuted,
-  cursor: 'pointer',
-  'white-space': 'nowrap',
-});
-
-const kbdStyle: JSX.CSSProperties = {
-  background: theme.bgInput,
-  border: `1px solid ${theme.border}`,
-  'border-radius': 'var(--radius-xs)',
-  padding: '1px 4px',
-  'font-size': sf(11),
-  'font-family': 'var(--font-mono)',
-};
-
-/** Sidebar bottom block: the two launchers (phone, arena) on one row, then a
- *  single progress line and a single tips line. Kept to a few rows so the
- *  task list above gets the space. */
+/** Compact utilities and optional activity totals, shared by every theme. */
 export function SidebarFooter(props: { onConnectPhone: () => void }) {
   const mergedTasksToday = createMemo(() => getMergedTasksTodayCount());
   const mergedLines = createMemo(() => getMergedLineTotals());
@@ -64,18 +33,9 @@ export function SidebarFooter(props: { onConnectPhone: () => void }) {
   const mcpOk = () => store.mcpStatus.running;
 
   return (
-    <div
-      style={{
-        'border-top': `1px solid ${theme.border}`,
-        'padding-top': '12px',
-        display: 'flex',
-        'flex-direction': 'column',
-        gap: '8px',
-        'flex-shrink': '0',
-      }}
-    >
+    <div class="sidebar-footer">
       <Show when={hasCoordinator()}>
-        <div style={{ display: 'flex', 'align-items': 'center', gap: '8px' }}>
+        <div class="sidebar-footer-connection">
           <div
             style={{
               width: '8px',
@@ -85,109 +45,109 @@ export function SidebarFooter(props: { onConnectPhone: () => void }) {
               'flex-shrink': '0',
             }}
           />
-          <span style={{ 'font-size': sf(11), color: theme.fgMuted }}>
-            MCP {mcpOk() ? 'Connected' : 'Disconnected'}
-          </span>
+          <span>MCP {mcpOk() ? 'Connected' : 'Disconnected'}</span>
         </div>
       </Show>
 
-      <div style={{ display: 'flex', gap: '6px' }}>
-        <button
-          onClick={() => props.onConnectPhone()}
-          title={
-            phoneConnected()
-              ? 'Phone connected: manage remote access'
-              : 'Connect a phone for remote access'
-          }
-          style={footerButtonStyle(phoneConnected())}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
+      <div class="sidebar-footer-tools">
+        <h2 class="sidebar-footer-heading">Workspace</h2>
+        <div class="sidebar-footer-actions">
+          <button
+            onClick={() => props.onConnectPhone()}
+            title={
+              phoneConnected()
+                ? 'Phone connected: manage remote access'
+                : 'Connect a phone for remote access'
+            }
+            type="button"
+            class="sidebar-footer-action"
+            aria-label={
+              phoneConnected() ? 'Phone connected: manage remote access' : 'Connect phone'
+            }
           >
-            <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
-            <line x1="12" y1="18" x2="12.01" y2="18" />
-          </svg>
-          {phoneConnected() ? 'Phone connected' : 'Phone'}
-        </button>
-        <button
-          onClick={() => toggleArena(true)}
-          title="Arena: run two agents on the same prompt and compare"
-          style={footerButtonStyle(false)}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+              <line x1="12" y1="18" x2="12.01" y2="18" />
+            </svg>
+            <span>Phone access</span>
+            <Show when={phoneConnected()}>
+              <span class="sidebar-footer-connected-dot" aria-hidden="true" />
+            </Show>
+          </button>
+          <button
+            onClick={() => toggleArena(true)}
+            title="Arena: run two agents on the same prompt and compare"
+            type="button"
+            class="sidebar-footer-action"
           >
-            <path d="M3 3L13 13M9 12L12 9" />
-            <path d="M13 3L3 13M4 9L7 12" />
-          </svg>
-          Arena
-        </button>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 3L13 13M9 12L12 9" />
+              <path d="M13 3L3 13M4 9L7 12" />
+            </svg>
+            Arena
+          </button>
+
+          <Show when={store.showSidebarTips}>
+            <button
+              type="button"
+              class="sidebar-footer-action sidebar-footer-shortcuts"
+              onClick={() => toggleHelpDialog(true)}
+              title={`Keyboard shortcuts (${mod}+/). Switch panels with ${alt}+Arrows.`}
+            >
+              <span class="sidebar-footer-action-label">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.25"
+                  aria-hidden="true"
+                >
+                  <rect x="1.5" y="3.5" width="13" height="9" rx="1" />
+                  <path d="M4 6h1m2 0h1m2 0h2M4 8.5h1m2 0h1m2 0h2M5 10.5h6" />
+                </svg>
+                Shortcuts
+              </span>
+              <kbd>{mod} /</kbd>
+            </button>
+          </Show>
+        </div>
       </div>
 
       <Show when={store.showSidebarProgress}>
-        <div
-          style={{
-            display: 'flex',
-            'align-items': 'center',
-            gap: '6px',
-            'font-size': sf(11),
-            color: theme.fgSubtle,
-            'font-variant-numeric': 'tabular-nums',
-            'white-space': 'nowrap',
-          }}
-          title="Tasks merged today, and lines added / removed across all merged tasks"
-        >
-          <span>Merged today</span>
-          <span style={{ color: theme.fg, 'font-weight': '600' }}>{mergedTasksToday()}</span>
-          <span aria-hidden="true">·</span>
-          <span style={{ color: theme.success }}>+{mergedLines().added.toLocaleString()}</span>
-          <span style={{ color: theme.error }}>-{mergedLines().removed.toLocaleString()}</span>
-        </div>
-      </Show>
-
-      <Show when={store.showSidebarTips}>
-        <div
-          onClick={() => toggleHelpDialog(true)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              toggleHelpDialog(true);
-            }
-          }}
-          tabIndex={0}
-          role="button"
-          title="Open the keyboard shortcuts overview"
-          style={{
-            display: 'flex',
-            'align-items': 'center',
-            gap: '6px',
-            'font-size': sf(11),
-            color: theme.fgSubtle,
-            cursor: 'pointer',
-            'white-space': 'nowrap',
-          }}
-        >
-          <kbd style={kbdStyle}>{alt} + Arrows</kbd>
-          <span>panels</span>
-          <span aria-hidden="true">·</span>
-          <kbd style={kbdStyle}>{mod} + /</kbd>
-          <span>shortcuts</span>
+        <div class="sidebar-footer-progress">
+          <div class="sidebar-footer-stat" title="Tasks merged today">
+            <span>Merged today</span>
+            <strong>{mergedTasksToday()}</strong>
+          </div>
+          <div class="sidebar-footer-lines" title="Lines added / removed across all merged tasks">
+            <span>Merged lines</span>
+            <span class="sidebar-footer-line-totals">
+              <span style={{ color: theme.success }}>+{mergedLines().added.toLocaleString()}</span>
+              <span style={{ color: theme.error }}>−{mergedLines().removed.toLocaleString()}</span>
+            </span>
+          </div>
         </div>
       </Show>
     </div>

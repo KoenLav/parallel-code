@@ -1,0 +1,97 @@
+import { render } from 'solid-js/web';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Task } from '../store/types';
+import { PromptHistory } from './PromptHistory';
+
+let dispose: (() => void) | undefined;
+afterEach(() => {
+  dispose?.();
+  document.body.replaceChildren();
+  vi.useRealTimers();
+});
+
+function mount(overrides: Partial<Task> = {}) {
+  const task: Task = {
+    id: 'task',
+    name: 'Task',
+    projectId: 'project',
+    branchName: 'branch',
+    worktreePath: '/repo',
+    agentIds: [],
+    shellAgentIds: [],
+    notes: '',
+    lastPrompt: '',
+    gitIsolation: 'worktree',
+    ...overrides,
+  };
+  const parentClick = vi.fn();
+  const root = document.createElement('div');
+  document.body.append(root);
+  dispose = render(
+    () => (
+      <div onClick={parentClick}>
+        <PromptHistory task={task} emptyLabel="No prompts sent" />
+      </div>
+    ),
+    root,
+  );
+  const button = root.querySelector('button');
+  if (!button) throw new Error('Missing history trigger');
+  return { button, parentClick };
+}
+
+describe('PromptHistory', () => {
+  it('shows complete prompt text in order on hover and retains it while entering the popover', () => {
+    vi.useFakeTimers();
+    const { button } = mount({
+      lastPrompt: 'Second prompt',
+      promptHistory: [
+        { text: 'First prompt\nwith another line', sentAt: 1700000000000, agentName: 'Codex' },
+        { text: '<script>plain text</script>' },
+        { text: 'Second prompt' },
+      ],
+    });
+    button.dispatchEvent(new MouseEvent('mouseenter'));
+    const popover = document.querySelector('[role="region"]');
+    expect(popover).not.toBeNull();
+    expect([...document.querySelectorAll('li p')].map((p) => p.textContent)).toEqual([
+      'First prompt\nwith another line',
+      '<script>plain text</script>',
+      'Second prompt',
+    ]);
+    expect(popover?.querySelector('script')).toBeNull();
+    button.dispatchEvent(new MouseEvent('mouseleave'));
+    popover?.dispatchEvent(new MouseEvent('mouseenter'));
+    vi.advanceTimersByTime(200);
+    expect(document.querySelector('[role="region"]')).not.toBeNull();
+    popover?.dispatchEvent(new MouseEvent('mouseleave'));
+    vi.advanceTimersByTime(200);
+    expect(document.querySelector('[role="region"]')).toBeNull();
+  });
+
+  it('supports keyboard access and Escape without handing focus to the terminal', () => {
+    const { button, parentClick } = mount({ lastPrompt: 'Legacy prompt' });
+    button.focus();
+    button.click();
+    expect(parentClick).not.toHaveBeenCalled();
+    expect(document.querySelector('li p')?.textContent).toBe('Legacy prompt');
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement?.getAttribute('role')).toBe('region');
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    expect(document.querySelector('[role="region"]')).toBeNull();
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('shows an empty state and closes on an outside click', () => {
+    const { button } = mount();
+    button.click();
+    expect(document.querySelector('[role="region"]')?.textContent).toContain(
+      'No prompts sent yet.',
+    );
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(document.querySelector('[role="region"]')).toBeNull();
+  });
+});

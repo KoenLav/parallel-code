@@ -141,6 +141,12 @@ export interface CanvasTab {
   path: string;
 }
 
+export interface PromptHistoryEntry {
+  text: string;
+  sentAt?: number;
+  agentName?: string;
+}
+
 export interface Task {
   id: string;
   name: string;
@@ -157,6 +163,7 @@ export interface Task {
   shellAgentIds: string[];
   notes: string;
   lastPrompt: string;
+  promptHistory?: PromptHistoryEntry[];
   promptedAgentIds?: string[];
   initialPrompt?: string; // auto-sends when agent is ready
   savedInitialPrompt?: string;
@@ -256,6 +263,7 @@ export interface PersistedTask {
   notes: string;
   promptDraft?: string;
   lastPrompt: string;
+  promptHistory?: PromptHistoryEntry[];
   promptedAgentIds?: string[];
   initialPrompt?: string;
   shellCount: number;
