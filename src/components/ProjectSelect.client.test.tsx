@@ -12,6 +12,26 @@ afterEach(() => {
 });
 
 describe('ProjectSelect', () => {
+  it('shows each project color next to its label', () => {
+    setStore('projects', [
+      { id: 'alpha', name: 'Alpha', path: '/alpha', color: 'rgb(255, 0, 0)' },
+      { id: 'beta', name: 'Beta', path: '/beta', color: 'rgb(0, 0, 255)' },
+    ]);
+    const container = document.createElement('div');
+    document.body.append(container);
+    disposers.push(
+      render(() => <ProjectSelect value="alpha" onChange={() => undefined} />, container),
+    );
+
+    const options = container.querySelectorAll('option');
+    expect(options[0].querySelector<HTMLElement>('.project-swatch')?.style.background).toBe(
+      'rgb(255, 0, 0)',
+    );
+    expect(options[1].querySelector<HTMLElement>('.project-swatch')?.style.background).toBe(
+      'rgb(0, 0, 255)',
+    );
+  });
+
   it('lists projects alphabetically by name', () => {
     setStore('projects', [
       { id: 'zulu', name: 'Zulu', path: '/zulu', color: '' },
