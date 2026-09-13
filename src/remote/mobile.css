@@ -72,24 +72,31 @@ select:focus-visible {
   margin-bottom: 4px;
 }
 .mobile-task-header {
-  align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
+  padding: max(6px, env(safe-area-inset-top)) 12px 6px;
 }
 .mobile-task-header > button {
   min-width: 44px;
   padding-inline: 10px;
 }
 .mobile-task-header h1 {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-.mobile-task-context {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  margin: 2px 0 4px;
+  font-size: 16px;
+}
+.mobile-task-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mobile-task-header .mobile-task-context {
+  min-width: 0;
+  font-size: 11px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  margin: 0;
 }
 .mobile-header .heading {
   flex: 1;
@@ -351,20 +358,6 @@ textarea.mobile-input {
   min-height: 0;
   overflow: hidden;
 }
-.mobile-reading {
-  height: 100%;
-  overflow: auto;
-  overscroll-behavior: contain;
-  padding: 20px;
-}
-.mobile-reading pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: inherit;
-  font-size: 16px;
-  line-height: 1.65;
-  margin: 12px 0 20px;
-}
 .mobile-terminal-scroll {
   height: 100%;
   overflow: auto;
@@ -410,25 +403,25 @@ textarea.mobile-input {
   max-height: 160px;
   resize: none;
 }
-.mobile-composer-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 2px;
-}
-.mobile-composer-tools .mobile-button {
-  padding: 8px;
-  font-size: 13px;
+.mobile-next-task {
+  display: block;
+  margin-left: auto;
 }
 .mobile-composer > .mobile-error {
   margin-bottom: 8px;
 }
 .mobile-keys {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  gap: 3px;
   padding-top: 8px;
+  overflow-x: auto;
+}
+.mobile-keys .mobile-button {
+  flex: 1 0 auto;
+  min-width: 30px;
+  padding: 8px 4px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 .mobile-form {
   display: flex;
@@ -543,26 +536,12 @@ textarea.mobile-input {
   .mobile-task-context {
     display: none;
   }
-  .mobile-task-header h1 {
-    -webkit-line-clamp: 1;
-  }
-  .mobile-keys {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
-  .mobile-keys button {
-    flex-shrink: 0;
-  }
 }
 @media (min-width: 700px) {
   .mobile-screen {
     max-width: 760px;
     margin-inline: auto;
     border-inline: 1px solid var(--mobile-border);
-  }
-  .mobile-reading {
-    padding-inline: 32px;
   }
 }
 

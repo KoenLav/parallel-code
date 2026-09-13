@@ -1,39 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { IBuffer } from '@xterm/xterm';
-import { terminalText, messageForTerminal } from './terminalText';
-
-function buffer(rows: { text: string; isWrapped?: boolean }[]): IBuffer {
-  return {
-    length: rows.length,
-    getLine: (index: number) =>
-      rows[index]
-        ? {
-            isWrapped: rows[index].isWrapped ?? false,
-            translateToString: (trim: boolean) =>
-              trim ? rows[index].text.trimEnd() : rows[index].text,
-          }
-        : undefined,
-  } as unknown as IBuffer;
-}
-
-describe('phone reading view', () => {
-  it('joins soft-wrapped terminal rows without losing spaces between words', () => {
-    const text = terminalText(
-      buffer([
-        { text: 'Please review ' },
-        { text: 'the changes', isWrapped: true },
-        { text: 'Then run tests.   ' },
-        { text: '' },
-      ]),
-    );
-    expect(text).toBe('Please review the changes\nThen run tests.');
-  });
-  it('bounds the snapshot while preserving hard line breaks', () => {
-    expect(terminalText(buffer([{ text: 'old' }, { text: 'one' }, { text: 'two' }]), 2)).toBe(
-      'one\ntwo',
-    );
-  });
-});
+import { messageForTerminal } from './terminalText';
 
 describe('composed phone replies', () => {
   it('preserves multiline text within bracketed paste', () => {

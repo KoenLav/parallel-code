@@ -6,7 +6,7 @@ import { fetchNotes, saveNotes, ApiError } from './api';
 import { clearPairedToken } from './auth';
 import { readLocal, writeLocal } from './storage';
 import { agentStatusDisplay } from './attention';
-import { terminalText, messageForTerminal } from './terminalText';
+import { messageForTerminal } from './terminalText';
 import { ConnectionBanner } from './ConnectionBanner';
 import {
   subscribeAgent,
@@ -37,11 +37,11 @@ const openRemoteHttpLink = createTerminalHttpLinkHandler({
 export function AgentDetail(props: AgentDetailProps) {
   let termContainer: HTMLDivElement | undefined;
   let outputArea: HTMLDivElement | undefined;
-  let reading: HTMLDivElement | undefined;
   let terminalScroller: HTMLDivElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
   let term: Terminal | undefined;
   let disposed = false;
+  let renderFrame = 0;
   // The parent keys this component by agent ID.
   // eslint-disable-next-line solid/reactivity
   const draftKey = `reply:${props.agentId}`;
@@ -51,17 +51,12 @@ export function AgentDetail(props: AgentDetailProps) {
   const [sending, setSending] = createSignal(false);
   const [sendError, setSendError] = createSignal('');
   const [sent, setSent] = createSignal(false);
-  const [showKeys, setShowKeys] = createSignal(false);
-  const [view, setView] = createSignal<'output' | 'terminal' | 'notes'>(
-    readLocal('output-view') === 'terminal' ? 'terminal' : 'output',
-  );
-  const [output, setOutput] = createSignal('');
+  const [view, setView] = createSignal<'terminal' | 'notes'>('terminal');
   const [multilinePaste, setMultilinePaste] = createSignal(false);
-  const [atBottom, setAtBottom] = createSignal(true);
   const [terminalBottom, setTerminalBottom] = createSignal(true);
-  const [fontSize, setFontSize] = createSignal(
-    Math.max(12, Math.min(24, Number(readLocal('terminal-font')) || 14)),
-  );
+  const [zoom, setZoom] = createSignal(1);
+  const fontSize = 14;
+  let terminalLineHeight = fontSize * 1.2;
   const [notesText, setNotesText] = createSignal(readLocal(notesKey));
   const [notesDirty, setNotesDirty] = createSignal(readLocal(`${notesKey}:dirty`) === 'true');
   const [notesLoading, setNotesLoading] = createSignal(false);
@@ -96,15 +91,37 @@ export function AgentDetail(props: AgentDetailProps) {
   }
 
   function fitTerminal() {
-    if (!term || !termContainer || !outputArea) return;
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (context) context.font = `${fontSize()}px monospace`;
-    const charWidth = context?.measureText('M').width ?? fontSize() * 0.61;
-    term.options.fontSize = fontSize();
-    const width = Math.ceil(term.cols * charWidth) + 16;
-    termContainer.style.width = `${width}px`;
-    termContainer.style.height = `${Math.ceil(term.rows * fontSize() * 1.2) + 8}px`;
+    cancelAnimationFrame(renderFrame);
+    renderFrame = requestAnimationFrame(() => {
+      if (disposed || !term || !termContainer || !outputArea) return;
+      const followTerminal = terminalBottom();
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (context) context.font = `${fontSize}px monospace`;
+      const charWidth = context?.measureText('M').width ?? fontSize * 0.61;
+      const availableWidth = outputArea.clientWidth;
+      const fittedFontSize =
+        availableWidth > 0
+          ? Math.min(
+              fontSize,
+              (fontSize * Math.max(1, availableWidth - 24)) / (term.cols * charWidth),
+            )
+          : fontSize;
+      // Scale through xterm so rendering, link hit testing and selection share cell dimensions.
+      const renderedFontSize = Math.max(1, fittedFontSize * zoom());
+      term.options.fontSize = renderedFontSize;
+      const screen = term.element?.querySelector<HTMLElement>('.xterm-screen');
+      const width =
+        screen?.offsetWidth || Math.ceil((term.cols * charWidth * renderedFontSize) / fontSize);
+      const height = screen?.offsetHeight || Math.ceil(term.rows * renderedFontSize * 1.2);
+      termContainer.style.width = `${width + 24}px`;
+      termContainer.style.height = `${height + 8}px`;
+      terminalLineHeight = height / term.rows;
+      // Repaint once the task's visible layout has settled, including a return from Notes.
+      term.refresh(0, term.rows - 1);
+      if (followTerminal && view() === 'terminal') jumpToLatest();
+      else updateTerminalBottom();
+    });
   }
 
   function updateTerminalBottom() {
@@ -117,14 +134,9 @@ export function AgentDetail(props: AgentDetailProps) {
   }
 
   function jumpToLatest() {
-    if (view() === 'terminal') {
-      term?.scrollToBottom();
-      if (terminalScroller) terminalScroller.scrollTop = terminalScroller.scrollHeight;
-      setTerminalBottom(true);
-    } else if (reading) {
-      reading.scrollTop = reading.scrollHeight;
-      setAtBottom(true);
-    }
+    term?.scrollToBottom();
+    if (terminalScroller) terminalScroller.scrollTop = terminalScroller.scrollHeight;
+    setTerminalBottom(true);
   }
 
   onMount(() => {
@@ -132,7 +144,7 @@ export function AgentDetail(props: AgentDetailProps) {
     term = new Terminal({
       cols: 80,
       rows: 24,
-      fontSize: fontSize(),
+      fontSize,
       fontFamily: 'monospace',
       lineHeight: 1.2,
       theme: { background: '#0b0f14', foreground: '#dce7f1' },
@@ -143,24 +155,9 @@ export function AgentDetail(props: AgentDetailProps) {
     });
     term.open(termContainer);
     fitTerminal();
-    let outputTimer: ReturnType<typeof setTimeout> | undefined;
-    let frame = 0;
     let terminalFrame = 0;
     const updateOutput = () => {
-      if (outputTimer) return;
-      outputTimer = setTimeout(() => {
-        outputTimer = undefined;
-        if (!term) return;
-        const follow = atBottom();
-        setOutput(terminalText(term.buffer.active));
-        setMultilinePaste(term.modes.bracketedPasteMode);
-        if (follow && reading) {
-          cancelAnimationFrame(frame);
-          frame = requestAnimationFrame(() => {
-            if (reading) reading.scrollTop = reading.scrollHeight;
-          });
-        }
-      }, 100);
+      if (term) setMultilinePaste(term.modes.bracketedPasteMode);
     };
     const scrollListener = term.onScroll(updateTerminalBottom);
     const parsedListener = term.onWriteParsed(updateOutput);
@@ -218,7 +215,7 @@ export function AgentDetail(props: AgentDetailProps) {
       );
       if (Math.abs(dy) >= Math.abs(dx)) {
         historyPixels += dy - (terminalScroller.scrollTop - previousTop);
-        const lineHeight = fontSize() * 1.2;
+        const lineHeight = terminalLineHeight;
         const lines = Math.trunc(historyPixels / lineHeight);
         if (lines) {
           term.scrollLines(lines);
@@ -233,8 +230,7 @@ export function AgentDetail(props: AgentDetailProps) {
     termContainer.addEventListener('touchend', touchEnd, { passive: true });
     onCleanup(() => {
       disposed = true;
-      clearTimeout(outputTimer);
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(renderFrame);
       cancelAnimationFrame(terminalFrame);
       observer.disconnect();
       termContainer?.removeEventListener('touchstart', touchStart);
@@ -343,13 +339,12 @@ export function AgentDetail(props: AgentDetailProps) {
     }
   }
 
-  function selectView(next: 'output' | 'terminal' | 'notes') {
+  function selectView(next: 'terminal' | 'notes') {
     setView(next);
-    if (next !== 'notes') writeLocal('output-view', next);
     requestAnimationFrame(() => {
       if (!disposed) {
         fitTerminal();
-        if (next === 'terminal' || (next === 'output' && atBottom())) jumpToLatest();
+        if (next === 'terminal') jumpToLatest();
       }
     });
   }
@@ -366,13 +361,15 @@ export function AgentDetail(props: AgentDetailProps) {
         </button>
         <div class="heading">
           <h1 title={props.taskName}>{props.taskName}</h1>
-          <p class="mobile-task-context">
-            {[agent()?.projectName, agent()?.agentName].filter(Boolean).join(' · ')}
-          </p>
-          <span class="agent-status" style={{ color: display().color }}>
-            <span class="status-dot" aria-hidden="true" />
-            {display().label}
-          </span>
+          <div class="mobile-task-meta">
+            <p class="mobile-task-context">
+              {[agent()?.projectName, agent()?.agentName].filter(Boolean).join(' · ')}
+            </p>
+            <span class="agent-status" style={{ color: display().color }}>
+              <span class="status-dot" aria-hidden="true" />
+              {display().label}
+            </span>
+          </div>
         </div>
       </header>
       <ConnectionBanner />
@@ -387,7 +384,6 @@ export function AgentDetail(props: AgentDetailProps) {
       <nav class="mobile-tabs" aria-label="Task views">
         <For
           each={[
-            { id: 'output' as const, label: 'Read' },
             { id: 'terminal' as const, label: 'Terminal' },
             { id: 'notes' as const, label: 'Notes' },
           ]}
@@ -409,45 +405,6 @@ export function AgentDetail(props: AgentDetailProps) {
         >
           <div ref={termContainer} class="mobile-terminal" />
         </div>
-        <Show when={view() === 'output'}>
-          <div
-            ref={reading}
-            class="mobile-reading"
-            onScroll={(e) =>
-              setAtBottom(
-                e.currentTarget.scrollHeight -
-                  e.currentTarget.scrollTop -
-                  e.currentTarget.clientHeight <
-                  48,
-              )
-            }
-          >
-            <p class="mobile-eyebrow">Agent output</p>
-            <Show
-              when={output()}
-              fallback={
-                <div class="mobile-empty" role="status">
-                  <h2>
-                    {status() !== 'connected'
-                      ? 'Reconnecting to your agent'
-                      : agent()?.status === 'exited'
-                        ? 'Agent session ended'
-                        : 'No output yet'}
-                  </h2>
-                  <p>
-                    {status() !== 'connected'
-                      ? 'Output will resume when your computer is reachable.'
-                      : agent()?.status === 'exited'
-                        ? 'Return to your tasks to continue working.'
-                        : 'Its output will appear here as it works.'}
-                  </p>
-                </div>
-              }
-            >
-              <pre>{output()}</pre>
-            </Show>
-          </div>
-        </Show>
         <Show when={view() === 'notes'}>
           <div class="mobile-scroll mobile-notes">
             <Show when={notesError()}>
@@ -474,11 +431,7 @@ export function AgentDetail(props: AgentDetailProps) {
             />
           </div>
         </Show>
-        <Show
-          when={
-            (view() === 'output' && !atBottom()) || (view() === 'terminal' && !terminalBottom())
-          }
-        >
+        <Show when={view() === 'terminal' && !terminalBottom()}>
           <button class="mobile-button mobile-latest" onClick={jumpToLatest}>
             ↓ Latest output
           </button>
@@ -532,27 +485,17 @@ export function AgentDetail(props: AgentDetailProps) {
                 {sending() ? 'Sending…' : canControl() ? 'Send' : 'Authorize'}
               </button>
             </div>
-            <div class="mobile-composer-tools">
-              <button
-                class="mobile-button quiet"
-                aria-expanded={showKeys()}
-                aria-controls="terminal-keys"
-                onClick={() => setShowKeys((v) => !v)}
-              >
-                Keys {showKeys() ? '⌃' : '⌄'}
-              </button>
-              <Show when={nextTask()}>
-                {(next) => (
-                  <button
-                    class="mobile-button quiet"
-                    aria-label={`Next task needing you: ${next().taskName}`}
-                    onClick={() => props.onNextTask(next().taskId)}
-                  >
-                    Next task →
-                  </button>
-                )}
-              </Show>
-            </div>
+            <Show when={nextTask()}>
+              {(next) => (
+                <button
+                  class="mobile-button quiet mobile-next-task"
+                  aria-label={`Next task needing you: ${next().taskName}`}
+                  onClick={() => props.onNextTask(next().taskId)}
+                >
+                  Next task →
+                </button>
+              )}
+            </Show>
             <Show when={inputText().length >= 3600}>
               <p class="muted" role="status">
                 {4000 - inputText().length} characters remaining
@@ -563,57 +506,51 @@ export function AgentDetail(props: AgentDetailProps) {
                 Accepted by terminal
               </p>
             </Show>
-            <Show when={showKeys()}>
-              <div id="terminal-keys" class="mobile-keys" role="group" aria-label="Terminal keys">
-                <For
-                  each={[
-                    { label: 'Enter', name: 'Enter', data: '\r' },
-                    { label: 'Tab', name: 'Tab', data: '\t' },
-                    { label: '↑', name: 'Arrow up', data: '\x1b[A' },
-                    { label: '↓', name: 'Arrow down', data: '\x1b[B' },
-                    { label: 'Esc', name: 'Escape', data: '\x1b' },
-                    { label: 'Ctrl+C', name: 'Interrupt agent (Control C)', data: '\x03' },
-                  ]}
-                >
-                  {(key) => (
-                    <button
-                      class="mobile-button"
-                      aria-label={key.name}
-                      disabled={!canControl() || sending()}
-                      onClick={() => void quickKey(key.data)}
-                    >
-                      {key.label}
-                    </button>
-                  )}
-                </For>
-                <Show when={view() === 'terminal'}>
+            <div id="terminal-keys" class="mobile-keys" role="group" aria-label="Terminal keys">
+              <For
+                each={[
+                  { label: 'Enter', name: 'Enter', data: '\r' },
+                  { label: 'Tab', name: 'Tab', data: '\t' },
+                  { label: '↑', name: 'Arrow up', data: '\x1b[A' },
+                  { label: '↓', name: 'Arrow down', data: '\x1b[B' },
+                  { label: 'Esc', name: 'Escape', data: '\x1b' },
+                  { label: 'Ctrl+C', name: 'Interrupt agent (Control C)', data: '\x03' },
+                ]}
+              >
+                {(key) => (
                   <button
                     class="mobile-button"
-                    aria-label="Smaller terminal text"
-                    disabled={fontSize() <= 12}
-                    onClick={() => {
-                      setFontSize((s) => s - 1);
-                      writeLocal('terminal-font', String(fontSize()));
-                      fitTerminal();
-                    }}
+                    aria-label={key.name}
+                    disabled={!canControl() || sending()}
+                    onClick={() => void quickKey(key.data)}
                   >
-                    A−
+                    {key.label}
                   </button>
-                  <button
-                    class="mobile-button"
-                    aria-label="Larger terminal text"
-                    disabled={fontSize() >= 24}
-                    onClick={() => {
-                      setFontSize((s) => s + 1);
-                      writeLocal('terminal-font', String(fontSize()));
-                      fitTerminal();
-                    }}
-                  >
-                    A+
-                  </button>
-                </Show>
-              </div>
-            </Show>
+                )}
+              </For>
+              <button
+                class="mobile-button"
+                aria-label="Smaller terminal text"
+                disabled={zoom() <= 0.5}
+                onClick={() => {
+                  setZoom((scale) => scale - 0.25);
+                  fitTerminal();
+                }}
+              >
+                A−
+              </button>
+              <button
+                class="mobile-button"
+                aria-label="Larger terminal text"
+                disabled={zoom() >= 2}
+                onClick={() => {
+                  setZoom((scale) => scale + 0.25);
+                  fitTerminal();
+                }}
+              >
+                A+
+              </button>
+            </div>
           </div>
         }
       >

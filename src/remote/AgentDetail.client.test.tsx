@@ -5,6 +5,8 @@ import { sendInput } from './ws';
 
 const terminalMocks = vi.hoisted(() => ({
   scrollLines: vi.fn(),
+  refresh: vi.fn(),
+  options: { fontSize: 14 },
   scrollback: undefined as ((data: string, cols: number, rows: number) => void) | undefined,
 }));
 
@@ -13,9 +15,12 @@ vi.mock('@xterm/xterm', () => ({
     cols = 80;
     rows = 24;
     modes = { bracketedPasteMode: true };
-    options = {};
+    options = terminalMocks.options;
     buffer = { active: { length: 0, viewportY: 0, baseY: 0, getLine: () => undefined } };
     open() {}
+    refresh(start: number, end: number) {
+      terminalMocks.refresh(start, end);
+    }
     resize(cols: number, rows: number) {
       this.cols = cols;
       this.rows = rows;
@@ -69,6 +74,7 @@ let host: HTMLDivElement;
 let dispose: () => void;
 beforeEach(() => {
   vi.clearAllMocks();
+  terminalMocks.options.fontSize = 14;
   localStorage.clear();
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   host = document.createElement('div');
@@ -115,7 +121,7 @@ describe('phone reply composer', () => {
     mount();
     await vi.waitFor(() => expect(composer().style.height).toBe('120px'));
     click('Notes');
-    click('Read');
+    click('Terminal');
     await vi.waitFor(() => expect(composer().style.height).toBe('120px'));
     expect(composer().value).toBe('First line\nSecond line\nThird line');
   });
@@ -198,6 +204,42 @@ describe('phone terminal viewport', () => {
     return event;
   }
 
+  it('fits the desktop columns to the phone and repaints on open and return from Notes', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(360);
+    mount();
+    const { content } = viewport();
+    terminalMocks.scrollback?.('', 120, 40);
+    await vi.waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 39));
+    const fittedFontSize = terminalMocks.options.fontSize;
+    expect(fittedFontSize).toBeGreaterThan(0);
+    expect(fittedFontSize).toBeLessThan(14);
+    expect(content.style.zoom).toBe('');
+    expect(parseFloat(content.style.width)).toBeLessThanOrEqual(360);
+    click('A+');
+    await vi.waitFor(() =>
+      expect(terminalMocks.options.fontSize).toBeCloseTo(fittedFontSize * 1.25),
+    );
+    click('Notes');
+    terminalMocks.refresh.mockClear();
+    click('Terminal');
+    await vi.waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 39));
+  });
+
+  it('opens Terminal with immediately usable keys even with the old Read preference', async () => {
+    localStorage.setItem('parallel-mobile:output-view', 'output');
+    vi.mocked(sendInput).mockResolvedValue(undefined);
+    mount();
+    expect(host.querySelector('.mobile-terminal-hidden')).toBeNull();
+    expect(host.querySelector('[aria-expanded]')).toBeNull();
+    expect([...host.querySelectorAll('nav button')].map((button) => button.textContent)).toEqual([
+      'Terminal',
+      'Notes',
+    ]);
+    click('Enter');
+    expect(sendInput).toHaveBeenCalledWith('a1', '\r');
+    await vi.waitFor(() => expect(composer().disabled).toBe(false));
+  });
+
   it('pans the desktop grid before scrolling history and shields gestures from xterm', () => {
     localStorage.setItem('parallel-mobile:output-view', 'terminal');
     mount();
@@ -221,7 +263,7 @@ describe('phone terminal viewport', () => {
     }
   });
 
-  it('opens a persisted Terminal view at the latest rows without yanking a scrolled reader on reconnect', async () => {
+  it('opens a task at the latest rows without yanking a scrolled reader on reconnect', async () => {
     localStorage.setItem('parallel-mobile:output-view', 'terminal');
     mount();
     const { scroller } = viewport();
