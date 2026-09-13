@@ -55,8 +55,9 @@ async function openWorkspace(): Promise<void> {
 
 function backButton(host: HTMLElement): HTMLButtonElement | null {
   return (
-    Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.trim() === '← Back') ??
-    null
+    Array.from(host.querySelectorAll('button')).find((b) =>
+      b.getAttribute('aria-label')?.startsWith('Back to '),
+    ) ?? null
   );
 }
 

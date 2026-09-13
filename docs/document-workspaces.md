@@ -35,7 +35,9 @@ the document.
 3. The workspace opens as a resizable panel alongside coding tasks. Selecting another
    task leaves it open; the title-bar switcher and task navigation shortcuts include it.
    One document workspace can be open at a time; selecting another document project
-   replaces the project in that panel. Focus mode shows the selected panel at full width. It has two tabs,
+   replaces the project in that panel. The header’s focus button shows the document at
+   full width; click it again to return to tiling. The file path beside the view tabs
+   opens the project’s **Files** list. It has two tabs,
    **Document** and **History**; comparing
    proposals happens in a modal over either.
    A **Files** tab in the right panel lists every file of the project; click one to open
@@ -77,7 +79,8 @@ the document.
      surface of the app, carry an enlarge button that opens them at the size of the window.
 5. The agent section has three tabs and a draggable seam. Below 800px panel width,
    it sits below the document; wider panels place it on the right with a default width
-   of 420px. Each layout remembers its own split; double-click the seam to reset it.
+   of 420px. The stacked layout gives the document 60% of the space by default. Each
+   layout remembers its own split; double-click the seam to reset it.
    Resizing and switching tasks preserve the agent session. **Agent** is the terminal a task has: the bar above it
    shows the last prompt sent, the chips switch between agents, **+** adds another one
    (as tabs by default, or side by side), and the prompt box below sends to the first

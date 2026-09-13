@@ -31,16 +31,98 @@
 }
 
 .docws-header {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
+  gap: 8px;
+  padding: 10px 12px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
   flex-shrink: 0;
   min-width: 0;
   user-select: none;
+}
+
+.docws-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.docws-header-actions .docws-btn {
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.docws-header-actions .docws-btn:hover:not(:disabled),
+.docws-header-actions .docws-btn[aria-pressed='true'] {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.docws-header-actions .docws-close:hover {
+  color: var(--error);
+}
+
+.docws-navigation {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.docws-navigation .docws-tabs {
+  margin-left: 0;
+  flex-shrink: 0;
+}
+
+.docws-file-path {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.docws-file-path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docws-file-path svg {
+  flex-shrink: 0;
+}
+
+.docws-file-path:hover {
+  color: var(--link);
+}
+
+.docws-back {
+  padding: 3px 7px;
+  flex-shrink: 0;
+}
+
+.docws-status {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 /* The header itself is the window drag region. Carve out every possible
@@ -78,12 +160,9 @@
   flex-shrink: 0;
 }
 
-/* In a narrow window the header would push Close out of view: the path and
-   the branch chip go first, since the file tree and the History tab carry
-   the same facts. The sidebar leaves less space than the window width. */
+/* File names remain available at every width; History carries branch details. */
 @container (max-width: 960px) {
-  .docws-header .docws-subtitle,
-  .docws-header .docws-head-chip:not(.is-action) {
+  .docws-navigation .docws-head-chip {
     display: none;
   }
 }
@@ -91,16 +170,6 @@
 .docws-open-editor {
   padding: 4px;
   flex-shrink: 0;
-}
-
-.docws-subtitle {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
 }
 
 /* Branch, head and working-tree state ride in the header instead of taking a
@@ -272,7 +341,7 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  padding: 12px;
+  padding: 8px;
   overflow-x: auto;
 }
 
@@ -474,6 +543,8 @@
 /* The document column does not scroll itself: the prose scrolls inside it, so
    the composer can float over the column instead of pushing the prose down. */
 .docws-doc-main {
+  container-type: inline-size;
+  container-name: document-pane;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -493,7 +564,7 @@
   position: relative;
   max-width: 800px;
   margin: 0 auto;
-  padding: 28px clamp(20px, 4cqi, 44px) 280px;
+  padding: 20px clamp(16px, 4cqi, 32px) 280px;
 }
 
 /* Full width is a choice, remembered across workspaces: wide tables and
@@ -510,7 +581,7 @@
 }
 
 .docws-doc .docws-content:not(.docws-page) {
-  font-size: 16px;
+  font-size: clamp(14px, 3cqi, 16px);
 }
 
 /* A page gets the whole column, top to bottom, the way a browser gives it the viewport. */
@@ -931,8 +1002,8 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  padding: 8px 12px;
-  min-height: 44px;
+  padding: 7px 10px;
+  min-height: 42px;
   background: var(--island-bg);
   border-bottom: 1px solid var(--border-subtle);
   font-size: 12px;
@@ -953,6 +1024,36 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.docws-toolbar-spacer {
+  margin-left: auto;
+}
+
+.docws-width-toggle[aria-pressed='true'] {
+  background: var(--bg-selected);
+  border-color: var(--border-focus);
+}
+
+@container document-pane (max-width: 600px) {
+  .docws-toolbar-label {
+    display: none;
+  }
+}
+
+@container document-pane (max-width: 380px) {
+  .docws-width-label {
+    display: none;
+  }
+
+  .docws-toolbar {
+    gap: 5px;
+    padding-inline: 6px;
+  }
+
+  .docws-toolbar .docws-btn-sm {
+    padding-inline: 6px;
+  }
 }
 
 .docws-zoom {

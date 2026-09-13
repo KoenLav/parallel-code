@@ -59,6 +59,7 @@ export function ActionIcon(props: { kind: BlockActionKind }) {
 const RIGHT_INSET = 6;
 
 interface BlockActionsProps {
+  floatingUiVisible?: boolean;
   /** The block the toolbar belongs to, on screen; null keeps the bar away. */
   anchor: Accessor<HTMLElement | null>;
   /** A page's § button and markers sit on the right; its toolbar takes the left. */
@@ -79,7 +80,7 @@ interface BlockActionsProps {
  */
 export function BlockActions(props: BlockActionsProps) {
   const [style, setStyle] = createSignal<JSX.CSSProperties | null>(null);
-  const open = () => props.anchor() !== null;
+  const open = () => props.floatingUiVisible !== false && props.anchor() !== null;
   createAnchorEffect(open, () => {
     const rect = props.anchor()?.getBoundingClientRect();
     if (!rect) return setStyle(null);
@@ -93,10 +94,15 @@ export function BlockActions(props: BlockActionsProps) {
     <Portal>
       <span
         class="docws-block-actions"
+        inert={props.floatingUiVisible === false}
         classList={{ 'is-open': open() && style() !== null }}
         role="toolbar"
         aria-label="Block actions"
-        style={style() ?? undefined}
+        style={{
+          ...style(),
+          visibility: props.floatingUiVisible === false ? 'hidden' : undefined,
+          transition: props.floatingUiVisible === false ? 'none' : undefined,
+        }}
         onMouseEnter={() => props.onPointer(true)}
         onMouseLeave={() => props.onPointer(false)}
       >

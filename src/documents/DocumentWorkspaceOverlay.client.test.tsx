@@ -44,6 +44,7 @@ afterEach(() => {
     editorCommand: '',
     documentFullWidth: false,
     documentWorkspacesEnabled: false,
+    focusMode: false,
     tasks: {},
     agents: {},
     terminals: {},
@@ -85,6 +86,50 @@ function button(host: HTMLElement, label: string): HTMLButtonElement | null {
 }
 
 describe('DocumentWorkspacePanel', () => {
+  it('switches document views with arrow keys and keeps keyboard focus on the selected tab', () => {
+    const host = openWorkspace();
+    const tabs = host.querySelectorAll<HTMLButtonElement>('[aria-label="Document views"] button');
+    tabs[0].focus();
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(documentStore.view).toBe('history');
+    expect(document.activeElement).toBe(tabs[1]);
+    expect(tabs[0].tabIndex).toBe(-1);
+    tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(documentStore.view).toBe('document');
+    expect(document.activeElement).toBe(tabs[0]);
+    const shortcut = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    tabs[0].dispatchEvent(shortcut);
+    expect(shortcut.defaultPrevented).toBe(false);
+    expect(documentStore.view).toBe('document');
+  });
+
+  it('focuses the document from its header and returns to tiling without closing it', () => {
+    const host = openWorkspace();
+    const focus = host.querySelector<HTMLButtonElement>('[aria-label="Focus on this document"]');
+    expect(focus).not.toBeNull();
+    focus?.click();
+    expect(store.focusMode).toBe(true);
+    expect(store.activeTaskId).toBe('doc-agent-docs');
+    host.querySelector<HTMLButtonElement>('[aria-label="Exit focus mode"]')?.click();
+    expect(store.focusMode).toBe(false);
+    expect(store.activeDocumentProjectId).toBe('docs');
+  });
+
+  it('opens the file list from the current document path', () => {
+    const host = openWorkspace();
+    const path = host.querySelector<HTMLButtonElement>(
+      '[aria-label="Browse project files: notes.md"]',
+    );
+    expect(path?.textContent).toContain('notes.md');
+    path?.click();
+    expect(host.querySelector('[aria-label="Project files"]')).not.toBeNull();
+  });
+
   it('stacks the document above the agent in a narrow panel', () => {
     const host = openWorkspace();
     expect(host.querySelector('.docws-body .resize-handle-v')).not.toBeNull();

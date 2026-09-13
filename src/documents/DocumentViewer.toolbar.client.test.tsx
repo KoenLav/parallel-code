@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js';
 import { render } from 'solid-js/web';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DocumentViewer } from './DocumentViewer';
@@ -22,6 +23,33 @@ const blocks: DocumentBlock[] = [
 ];
 
 describe('the floating block toolbar and the viewer\u2019s hover tracking', () => {
+  it('hides its floating toolbar when the panel becomes invisible', () => {
+    const [visible, setVisible] = createSignal(true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    disposers.push(
+      render(
+        () => (
+          <DocumentViewer
+            blocks={blocks}
+            renderKey="visibility"
+            selectable
+            onAction={() => {}}
+            floatingUiVisible={visible()}
+          />
+        ),
+        host,
+      ),
+    );
+    host
+      .querySelector('[data-block-index="0"] p')
+      ?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    const toolbar = document.querySelector<HTMLElement>('.docws-block-actions');
+    expect(toolbar?.classList.contains('is-open')).toBe(true);
+    setVisible(false);
+    expect(toolbar?.classList.contains('is-open')).toBe(false);
+    expect(toolbar?.inert).toBe(true);
+  });
   it('stays open while the pointer moves between its own buttons', async () => {
     const host = document.createElement('div');
     document.body.append(host);

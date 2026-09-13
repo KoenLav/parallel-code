@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js';
 import { render } from 'solid-js/web';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AnnotationMarker } from './AnnotationMarker';
@@ -41,6 +42,33 @@ function mount(annotations: DocumentAnnotation[]): HTMLDivElement {
 }
 
 describe('AnnotationMarker', () => {
+  it('hides a pinned portal with its panel and restores it without losing its state', () => {
+    const [visible, setVisible] = createSignal(true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    disposers.push(
+      render(
+        () => (
+          <AnnotationMarker
+            annotations={[annotation('a', 'Keep this note', 'note')]}
+            onMakeTask={() => {}}
+            floatingUiVisible={visible()}
+          />
+        ),
+        host,
+      ),
+    );
+    host.querySelector<HTMLButtonElement>('.docws-marker-btn')?.click();
+    const pop = document.querySelector<HTMLElement>('.docws-marker-pop');
+    expect(pop?.classList.contains('is-open')).toBe(true);
+    setVisible(false);
+    expect(pop?.classList.contains('is-open')).toBe(false);
+    expect(pop?.inert).toBe(true);
+    setVisible(true);
+    expect(pop?.classList.contains('is-open')).toBe(true);
+    expect(pop?.textContent).toContain('Keep this note');
+  });
+
   it('names the notes and questions it holds', () => {
     const host = mount([
       annotation('a', 'A thought', 'note'),

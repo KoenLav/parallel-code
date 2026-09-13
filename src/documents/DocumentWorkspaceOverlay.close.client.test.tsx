@@ -5,7 +5,7 @@ import { setStore, store } from '../store/core';
 import { addAgentToTask } from '../store/agents';
 import { clearAgentActivity } from '../store/taskStatus';
 import { TilingLayout } from '../components/TilingLayout';
-import { setActiveTask } from '../store/navigation';
+import { jumpToTask, setActiveTask } from '../store/navigation';
 import { closeDocumentWorkspace, documentStore } from './store';
 import { documentAgentTaskId, ensureDocumentAgentTask } from './agent-task';
 import type { AgentDef } from '../ipc/types';
@@ -89,6 +89,31 @@ async function open(): Promise<HTMLElement> {
 }
 
 describe('document panel lifetime', () => {
+  it('restores document prompt focus when selected by its number shortcut', async () => {
+    const host = await open();
+    setStore('tasks', 'code', {
+      id: 'code',
+      name: 'Code',
+      projectId: 'docs',
+      branchName: '',
+      worktreePath: '/code',
+      agentIds: [],
+      shellAgentIds: [],
+      notes: '',
+      lastPrompt: '',
+    });
+    setStore('taskOrder', ['code']);
+    setStore('focusedPanel', documentAgentTaskId('docs'), 'prompt');
+    setActiveTask('code');
+    const otherInput = document.createElement('textarea');
+    document.body.append(otherInput);
+    otherInput.focus();
+    jumpToTask(1);
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(host.querySelector('.docws-agent-prompt textarea')),
+    );
+  });
+
   it('keeps the terminal mounted when resizing between stacked and wide layouts', async () => {
     let resize: ((width: number) => void) | undefined;
     vi.stubGlobal(

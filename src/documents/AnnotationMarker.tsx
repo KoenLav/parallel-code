@@ -11,6 +11,8 @@ import type { DocumentAnnotation } from './types';
 import { registerPinnedBubble } from './workspace-ui';
 
 interface AnnotationMarkerProps {
+  /** Portalled controls must follow their owning panel’s visibility. */
+  floatingUiVisible?: boolean;
   annotations: DocumentAnnotation[];
   onMakeTask: (annotation: DocumentAnnotation) => void;
 }
@@ -58,7 +60,8 @@ export function AnnotationMarker(props: AnnotationMarkerProps) {
   const [pinned, setPinned] = createSignal(false);
   const [focused, setFocused] = createSignal(false);
   const hover = createHeldSignal<true>(HOVER_HOLD_MS);
-  const open = () => pinned() || focused() || hover.value() === true;
+  const open = () =>
+    props.floatingUiVisible !== false && (pinned() || focused() || hover.value() === true);
   const [pos, setPos] = createSignal<BelowAnchor | null>(null);
   const awaiting = () => props.annotations.some(isAwaitingAnswer);
   const label = () =>
@@ -173,10 +176,13 @@ export function AnnotationMarker(props: AnnotationMarkerProps) {
         <div
           ref={pop}
           class="docws-marker-pop"
+          inert={props.floatingUiVisible === false}
           classList={{ 'is-open': open() && pos() !== null }}
           role="group"
           aria-label={label()}
           style={{
+            visibility: props.floatingUiVisible === false ? 'hidden' : undefined,
+            transition: props.floatingUiVisible === false ? 'none' : undefined,
             top: `${pos()?.top ?? 0}px`,
             right: `${pos()?.right ?? 0}px`,
             'max-height': `min(60vh, ${pos()?.maxHeight ?? 0}px)`,

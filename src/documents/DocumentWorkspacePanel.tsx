@@ -32,7 +32,7 @@ import {
   undoDeleteDocumentAnnotation,
   type DocumentView,
 } from './store';
-import { resetWorkspaceUi } from './workspace-ui';
+import { resetWorkspaceUi, setRailTab, workspaceUi } from './workspace-ui';
 import {
   activateDocumentAgentTask,
   ensureDocumentAgentTask,
@@ -40,6 +40,7 @@ import {
 } from './agent-task';
 import { documentAgentTaskId } from './task-id';
 import { setActiveTask } from '../store/navigation';
+import { getTaskFocusedPanel, triggerFocus } from '../store/focused-panel';
 import { findAnchorTarget } from './links';
 import { relocateAnchor } from './annotation-anchor';
 import { isHtmlDocument } from './html-document';
@@ -64,7 +65,9 @@ import { DocumentIcon } from './DocumentIcon';
 import { ActionIcon } from './BlockActions';
 import { Dialog } from '../components/Dialog';
 import { openInEditor, revealItemInDir } from '../lib/shell';
-import { setDocumentFullWidth } from '../store/ui';
+import { CloseIcon } from '../components/icons';
+import { setDocumentFullWidth, toggleTaskFocusMode } from '../store/ui';
+import { isTerminalPaneOnScreen } from '../lib/terminalPaneVisibility';
 import { errMessage } from '../lib/log';
 import { showNotification } from '../store/notification';
 
@@ -72,6 +75,16 @@ import { showNotification } from '../store/notification';
 const COMPOSER_GAP = 8;
 
 function DocumentPane(props: { project: Project }) {
+  // Floating controls live under document.body, outside the tile's visibility/inert boundary.
+  const floatingUiVisible = () => {
+    const taskId = documentAgentTaskId(props.project.id);
+    return isTerminalPaneOnScreen({
+      taskId,
+      activeTaskId: store.activeTaskId,
+      focusMode: store.focusMode && !store.showNewTaskPanel,
+      viewportVisibility: store.taskViewportVisibility[taskId],
+    });
+  };
   const zoom = () => {
     const value = props.project.documentZoom;
     return typeof value === 'number' && Number.isFinite(value)
@@ -354,7 +367,9 @@ function DocumentPane(props: { project: Project }) {
             Revise document
           </button>
         </Show>
-        <span class="docws-toolbar-label">{toolbarLabel()}</span>
+        <span class="docws-toolbar-label" title={toolbarLabel()}>
+          {toolbarLabel()}
+        </span>
         <Show when={editableBlock() && !showsPreview() && !editingMarkdown()}>
           <button
             type="button"
@@ -376,7 +391,7 @@ function DocumentPane(props: { project: Project }) {
             </button>
           </span>
         </Show>
-        <span style={{ 'margin-left': 'auto' }} />
+        <span class="docws-toolbar-spacer" />
         <div class="docws-zoom" role="group" aria-label="Document zoom">
           <button
             type="button"
@@ -411,7 +426,8 @@ function DocumentPane(props: { project: Project }) {
         <Show when={!showsPreview()}>
           <button
             type="button"
-            class="docws-btn docws-btn-sm"
+            class="docws-btn docws-btn-sm docws-width-toggle"
+            aria-label="Full width"
             aria-pressed={store.documentFullWidth}
             title={
               store.documentFullWidth
@@ -420,7 +436,18 @@ function DocumentPane(props: { project: Project }) {
             }
             onClick={() => setDocumentFullWidth(!store.documentFullWidth)}
           >
-            Full width
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+            >
+              <path d="M2 3v10M14 3v10M5 8h6M6 6 4 8l2 2M10 6l2 2-2 2" />
+            </svg>
+            <span class="docws-width-label">Full width</span>
           </button>
         </Show>
         <Show when={resolvedCount() > 0 && !editingMarkdown()}>
@@ -509,6 +536,7 @@ function DocumentPane(props: { project: Project }) {
           </Show>
           <DocumentViewer
             blocks={blocks.blocks()}
+            floatingUiVisible={floatingUiVisible()}
             selectable
             selection={range()}
             onSelect={setDocumentSelection}
@@ -533,7 +561,11 @@ function DocumentPane(props: { project: Project }) {
               const annotations = placed().byBlock.get(index);
               return (
                 <Show when={annotations?.length}>
-                  <AnnotationMarker annotations={annotations ?? []} onMakeTask={makeTask} />
+                  <AnnotationMarker
+                    annotations={annotations ?? []}
+                    onMakeTask={makeTask}
+                    floatingUiVisible={floatingUiVisible()}
+                  />
                 </Show>
               );
             }}
@@ -617,12 +649,39 @@ export function DocumentWorkspacePanel() {
     return p ? documentAgentTaskId(p.id) : null;
   };
   const isActive = () => !!taskId() && store.activeTaskId === taskId();
+  let preserveInteractionFocus = false;
   function activate() {
     const id = taskId();
-    if (id && !isActive()) setActiveTask(id);
+    if (id && !isActive()) {
+      preserveInteractionFocus = true;
+      setActiveTask(id);
+    }
   }
   let panelRef!: HTMLDivElement;
   const [wide, setWide] = createSignal(false);
+  createEffect(
+    on(
+      () => (isActive() ? taskId() : null),
+      (activeId) => {
+        if (!activeId) {
+          preserveInteractionFocus = false;
+          return;
+        }
+        // Mouse/focus events already have a target; task shortcuts only change selection.
+        if (preserveInteractionFocus) {
+          preserveInteractionFocus = false;
+          return;
+        }
+        const frame = requestAnimationFrame(() => {
+          const id = taskId();
+          if (!id || !isActive() || panelRef.contains(document.activeElement)) return;
+          if (workspaceUi.railTab === 'agent') triggerFocus(`${id}:${getTaskFocusedPanel(id)}`);
+          if (!panelRef.contains(document.activeElement)) panelRef.focus({ preventScroll: true });
+        });
+        onCleanup(() => cancelAnimationFrame(frame));
+      },
+    ),
+  );
   onMount(() => {
     const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= 800));
     observer.observe(panelRef);
@@ -705,6 +764,25 @@ export function DocumentWorkspacePanel() {
         class="docws-tab"
         role="tab"
         aria-selected={documentStore.view === view}
+        tabIndex={documentStore.view === view ? 0 : -1}
+        onKeyDown={(e) => {
+          if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const next =
+            e.key === 'Home'
+              ? 'document'
+              : e.key === 'End'
+                ? 'history'
+                : view === 'document'
+                  ? 'history'
+                  : 'document';
+          setDocumentView(next);
+          e.currentTarget.parentElement
+            ?.querySelector<HTMLButtonElement>('[aria-selected="true"]')
+            ?.focus();
+        }}
         onClick={() => setDocumentView(view)}
       >
         {label}
@@ -717,6 +795,7 @@ export function DocumentWorkspacePanel() {
   const panes: PanelChild[] = [
     {
       id: 'main',
+      absorberWeight: 1.5,
       get minSize() {
         return wide() ? 320 : 120;
       },
@@ -755,14 +834,17 @@ export function DocumentWorkspacePanel() {
       class="docws-workspace task-column"
       classList={{ active: isActive() }}
       role="region"
+      tabIndex={-1}
       aria-label="Document workspace"
       onMouseDown={activate}
       onFocusIn={activate}
     >
       <div class="docws-header" data-tauri-drag-region>
-        <div class="docws-title">
+        <div class="docws-title" title={project()?.name}>
           <DocumentIcon />
           <span>{project()?.name}</span>
+        </div>
+        <div class="docws-header-actions">
           <button
             type="button"
             class="docws-btn docws-open-editor"
@@ -801,63 +883,113 @@ export function DocumentWorkspacePanel() {
               <path d="M8 2.25a.75.75 0 0 1 .73.56l.2.72a4.48 4.48 0 0 1 1.04.43l.66-.37a.75.75 0 0 1 .9.13l.75.75a.75.75 0 0 1 .13.9l-.37.66c.17.33.31.68.43 1.04l.72.2a.75.75 0 0 1 .56.73v1.06a.75.75 0 0 1-.56.73l-.72.2a4.48 4.48 0 0 1-.43 1.04l.37.66a.75.75 0 0 1-.13.9l-.75.75a.75.75 0 0 1-.9.13l-.66-.37a4.48 4.48 0 0 1-1.04.43l-.2.72a.75.75 0 0 1-.73.56H6.94a.75.75 0 0 1-.73-.56l-.2-.72a4.48 4.48 0 0 1-1.04-.43l-.66.37a.75.75 0 0 1-.9-.13l-.75-.75a.75.75 0 0 1-.13-.9l.37-.66a4.48 4.48 0 0 1-.43-1.04l-.72-.2a.75.75 0 0 1-.56-.73V7.47a.75.75 0 0 1 .56-.73l.72-.2c.11-.36.26-.71.43-1.04l-.37-.66a.75.75 0 0 1 .13-.9l.75-.75a.75.75 0 0 1 .9-.13l.66.37c.33-.17.68-.31 1.04-.43l.2-.72a.75.75 0 0 1 .73-.56H8Zm-.53 3.22a2.5 2.5 0 1 0 1.06 4.88 2.5 2.5 0 0 0-1.06-4.88Z" />
             </svg>
           </button>
-        </div>
-        <Show when={previousDocumentPath()}>
-          {(previous) => (
-            <button
-              type="button"
-              class="docws-btn docws-btn-sm"
-              title={`Back to ${previous()}`}
-              onClick={() => void goBackDocument()}
+          <button
+            type="button"
+            class="docws-btn docws-open-editor"
+            aria-label={store.focusMode ? 'Exit focus mode' : 'Focus on this document'}
+            title={store.focusMode ? 'Exit focus mode' : 'Focus on this document'}
+            aria-pressed={store.focusMode && isActive()}
+            onClick={() => toggleTaskFocusMode(taskId())}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
             >
-              ← Back
-            </button>
-          )}
-        </Show>
-        <span class="docws-subtitle" title={openPath()}>
-          {openPath()}
-        </span>
-        <span class="docws-head-chip" title="Checked-out branch and head commit">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-            <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
-          </svg>
-          {snapshot()?.branch ?? 'detached'} · {snapshot()?.headSha?.slice(0, 7) ?? 'no commits'}
-        </span>
-        <Show when={snapshot()?.dirty}>
+              <Show
+                when={store.focusMode}
+                fallback={<path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" />}
+              >
+                <path d="M6 2v4H2M10 2v4h4M14 10h-4v4M2 10h4v4" />
+              </Show>
+            </svg>
+          </button>
           <button
             type="button"
-            class="docws-head-chip is-warning is-action"
-            title="Commit or discard these edits"
-            onClick={() => setShowEditActions(true)}
+            class="docws-btn docws-open-editor docws-close"
+            aria-label="Close document workspace"
+            title="Close document workspace"
+            onClick={() => closeDocumentWorkspace()}
           >
-            uncommitted edits
+            <CloseIcon />
           </button>
-        </Show>
-        <Show when={documentStore.loading}>
-          <span class="docws-head-chip">loading…</span>
-        </Show>
-        <Show when={reviewable().length > 0}>
-          <button
-            type="button"
-            class="docws-btn docws-btn-sm docws-btn-primary"
-            title="Open the compare view"
-            onClick={() => openDocumentCompare(reviewable()[0].id)}
-          >
-            {reviewable().length} to review
-          </button>
-        </Show>
-        <div class="docws-tabs" role="tablist">
-          {tab('document', 'Document')}
-          {tab('history', 'History')}
         </div>
-        <button
-          type="button"
-          class="docws-btn"
-          title="Close (Esc)"
-          onClick={() => closeDocumentWorkspace()}
-        >
-          Close
-        </button>
+        <div class="docws-navigation">
+          <div class="docws-tabs" role="tablist" aria-label="Document views">
+            {tab('document', 'Document')}
+            {tab('history', 'History')}
+          </div>
+          <Show when={previousDocumentPath()}>
+            {(previous) => (
+              <button
+                type="button"
+                class="docws-btn docws-back"
+                title={`Back to ${previous()}`}
+                aria-label={`Back to ${previous()}`}
+                onClick={() => void goBackDocument()}
+              >
+                ←
+              </button>
+            )}
+          </Show>
+          <button
+            type="button"
+            class="docws-file-path"
+            title={`Browse project files · ${openPath() ?? ''}`}
+            aria-label={`Browse project files: ${openPath() ?? ''}`}
+            onClick={() => setRailTab('files')}
+          >
+            <span>{openPath()}</span>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+            >
+              <path d="m5 6 3 3 3-3" />
+            </svg>
+          </button>
+          <span class="docws-head-chip" title="Checked-out branch and head commit">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
+            </svg>
+            {snapshot()?.branch ?? 'detached'} · {snapshot()?.headSha?.slice(0, 7) ?? 'no commits'}
+          </span>
+        </div>
+        <Show when={snapshot()?.dirty || documentStore.loading || reviewable().length > 0}>
+          <div class="docws-status" role="status">
+            <Show when={snapshot()?.dirty}>
+              <button
+                type="button"
+                class="docws-head-chip is-warning is-action"
+                title="Commit or discard these edits"
+                onClick={() => setShowEditActions(true)}
+              >
+                uncommitted edits
+              </button>
+            </Show>
+            <Show when={documentStore.loading}>
+              <span class="docws-head-chip">loading…</span>
+            </Show>
+            <Show when={reviewable().length > 0}>
+              <button
+                type="button"
+                class="docws-btn docws-btn-sm docws-btn-primary"
+                title="Open the compare view"
+                onClick={() => openDocumentCompare(reviewable()[0].id)}
+              >
+                {reviewable().length} to review
+              </button>
+            </Show>
+          </div>
+        </Show>
       </div>
       <Show when={documentStore.error}>
         <div class="docws-banner docws-banner-error" role="alert">

@@ -111,7 +111,7 @@ export function TilingLayout() {
     const taskEls = containerRef.querySelectorAll<HTMLElement>('[data-task-id]');
     for (const el of taskEls) {
       const taskId = el.dataset.taskId;
-      if (!taskId || !store.tasks[taskId]) continue;
+      if (!taskId || (!store.tasks[taskId] && taskId !== documentTaskId())) continue;
       const rect = el.getBoundingClientRect();
       if (rect.right <= containerRect.left + VIEWPORT_EPSILON_PX) {
         nextVisibility[taskId] = 'offscreen-left';

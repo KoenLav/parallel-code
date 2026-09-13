@@ -20,6 +20,8 @@ export interface BlockRange {
 }
 
 interface DocumentViewerProps {
+  /** Portalled controls must follow their owning panel’s visibility. */
+  floatingUiVisible?: boolean;
   blocks: DocumentBlock[];
   /** Renders selection affordances and reports selections. */
   selectable?: boolean;
@@ -239,6 +241,7 @@ export function DocumentViewer(props: DocumentViewerProps) {
     >
       <Show when={props.selectable && props.onAction}>
         <BlockActions
+          floatingUiVisible={props.floatingUiVisible}
           anchor={toolbarBlock}
           alignLeft={isPage()}
           onAction={(kind) => {
