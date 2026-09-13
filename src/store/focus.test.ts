@@ -471,6 +471,7 @@ describe('scrollTaskElementIntoView', () => {
     setTask('task-1');
     setTask('task-2');
     mockStore.taskOrder = ['task-1', 'task-2'];
+    mockStore.activeTaskId = 'task-2';
     const scroller = createScroller();
     const el = createItem({ closest: vi.fn(() => scroller) } as Partial<HTMLElement>);
     vi.stubGlobal('document', {

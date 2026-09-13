@@ -214,8 +214,10 @@ export function unfocusPlaceholder(): void {
 }
 
 function focusTaskPanel(taskId: string, panel: string): void {
-  setActiveTask(taskId);
-  setTaskFocusedPanel(taskId, panel);
+  batch(() => {
+    setActiveTask(taskId);
+    setTaskFocusedPanel(taskId, panel);
+  });
 }
 
 function focusNewTaskPanel(): void {

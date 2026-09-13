@@ -24,6 +24,7 @@ import {
 } from '../store/store';
 import { DocumentWorkspacePanel } from '../documents/DocumentWorkspacePanel';
 import { documentAgentTaskId } from '../documents/task-id';
+import { scrollTaskIntoView } from '../store/focused-panel';
 import { codeProjects } from '../store/projects';
 import { closeTask } from '../store/tasks';
 import { TaskPanel } from './TaskPanel';
@@ -221,7 +222,7 @@ export function TilingLayout() {
       const behavior: ScrollBehavior =
         isFirstActiveTaskScroll || returningFromNewTask ? 'instant' : 'smooth';
       isFirstActiveTaskScroll = false;
-      scrollTaskElementIntoView(containerRef, el, behavior);
+      scrollTaskIntoView(activeId, behavior);
     }
     requestAnimationFrame(() => updateViewportState());
   });

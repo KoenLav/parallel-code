@@ -8,13 +8,13 @@ import {
   clearPrefillPrompt,
   getProject,
   setTaskFocusedPanel,
-  triggerFocus,
   clearPendingAction,
   showNotification,
   setTaskSplitMode,
   isTaskCanvasVisible,
 } from '../store/store';
 import { useFocusRegistration } from '../lib/focus-registration';
+import { scheduleTaskFocus } from '../store/focused-panel';
 import { ResizablePanel, type PanelChild } from './ResizablePanel';
 import { CANVAS_DEFAULT_WIDTH, CANVAS_MIN_WIDTH } from '../lib/layout-sizes';
 import type { EditableTextHandle } from './EditableText';
@@ -160,7 +160,7 @@ export function TaskPanel(props: TaskPanelProps) {
     if (!props.isActive) return;
     const panel = store.focusedPanel[props.task.id];
     if (panel) {
-      triggerFocus(`${props.task.id}:${panel}`);
+      scheduleTaskFocus(props.task.id, panel);
     }
   });
 
@@ -180,7 +180,6 @@ export function TaskPanel(props: TaskPanelProps) {
             promptRef?.focus();
           } else {
             setTaskFocusedPanel(id, 'ai-terminal');
-            triggerFocus(`${id}:ai-terminal`);
           }
         }
       }, 0);

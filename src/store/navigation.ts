@@ -37,6 +37,7 @@ export function setActiveTask(id: string): void {
     store.activeDocumentProjectId && id === documentAgentTaskId(store.activeDocumentProjectId);
   if (!task && !terminal && !isDocument) return;
   setStore('newTaskPanelFocused', false);
+  setStore('placeholderFocused', false);
   let activeAgentId: string | null = null;
   if (task) {
     activeAgentId =

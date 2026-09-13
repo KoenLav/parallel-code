@@ -339,6 +339,9 @@ describe('inline task creation', () => {
       .find((el) => el.textContent === 'Cancel')
       ?.click();
 
+    await vi.waitFor(() =>
+      expect(scrollIntoView.mock.calls.length + scrollTo.mock.calls.length).toBeGreaterThan(0),
+    );
     const scrollOptions = [...scrollIntoView.mock.calls, ...scrollTo.mock.calls].map(
       ([options]) => options,
     );
