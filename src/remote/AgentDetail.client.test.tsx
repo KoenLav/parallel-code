@@ -177,19 +177,19 @@ describe('phone reply composer', () => {
 });
 
 describe('phone terminal viewport', () => {
-  function viewport() {
+  function viewport(height = 1200) {
     const scroller = host.querySelector<HTMLDivElement>('.mobile-terminal-scroll');
     const content = host.querySelector<HTMLDivElement>('.mobile-terminal');
     if (!scroller || !content) throw new Error('Missing terminal viewport');
     let top = 0;
     Object.defineProperties(scroller, {
-      scrollHeight: { configurable: true, value: 1200 },
+      scrollHeight: { configurable: true, value: height },
       clientHeight: { configurable: true, value: 300 },
       scrollTop: {
         configurable: true,
         get: () => top,
         set: (value: number) => {
-          top = Math.max(0, Math.min(900, value));
+          top = Math.max(0, Math.min(height - 300, value));
         },
       },
     });
@@ -198,7 +198,11 @@ describe('phone terminal viewport', () => {
   function touch(target: HTMLElement, type: string, x: number, y: number, count = 1) {
     const event = new Event(type, { bubbles: true, cancelable: true });
     Object.defineProperty(event, 'touches', {
-      value: Array.from({ length: count }, () => ({ clientX: x, clientY: y })),
+      value: Array.from({ length: count }, (_, identifier) => ({
+        clientX: x,
+        clientY: y,
+        identifier,
+      })),
     });
     target.dispatchEvent(event);
     return event;
@@ -261,6 +265,56 @@ describe('phone terminal viewport', () => {
     } finally {
       document.removeEventListener('touchmove', xtermGesture);
     }
+  });
+
+  it('scrolls history from the empty pane below a fitted terminal without typing into the agent', () => {
+    mount();
+    const { scroller } = viewport(300);
+    touch(scroller, 'touchstart', 100, 200);
+    const move = touch(scroller, 'touchmove', 100, 260);
+    expect(terminalMocks.scrollLines).toHaveBeenCalledWith(-3);
+    expect(move.defaultPrevented).toBe(true);
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
+  it('handles wheel scrolling before xterm consumes it, while preserving browser zoom', () => {
+    mount();
+    const { content } = viewport(300);
+    const xtermWheel = vi.fn();
+    content.addEventListener('wheel', xtermWheel);
+    const wheel = new WheelEvent('wheel', {
+      deltaY: -3,
+      deltaMode: WheelEvent.DOM_DELTA_LINE,
+      bubbles: true,
+      cancelable: true,
+    });
+    content.dispatchEvent(wheel);
+    expect(terminalMocks.scrollLines).toHaveBeenCalledWith(-3);
+    expect(xtermWheel).not.toHaveBeenCalled();
+    expect(wheel.defaultPrevented).toBe(true);
+    terminalMocks.scrollLines.mockClear();
+    const zoom = new WheelEvent('wheel', {
+      deltaY: -100,
+      bubbles: true,
+      cancelable: true,
+    });
+    // happy-dom's WheelEvent omits MouseEvent modifier keys.
+    Object.defineProperty(zoom, 'ctrlKey', { value: true });
+    content.dispatchEvent(zoom);
+    expect(zoom.defaultPrevented).toBe(false);
+    expect(terminalMocks.scrollLines).not.toHaveBeenCalled();
+    expect(xtermWheel).not.toHaveBeenCalled();
+  });
+
+  it('does not jump when a pinch returns to one finger', () => {
+    mount();
+    const { scroller } = viewport(300);
+    touch(scroller, 'touchstart', 100, 100);
+    touch(scroller, 'touchmove', 100, 300, 2);
+    touch(scroller, 'touchmove', 100, 500);
+    expect(terminalMocks.scrollLines).not.toHaveBeenCalled();
+    touch(scroller, 'touchmove', 100, 560);
+    expect(terminalMocks.scrollLines).toHaveBeenCalledWith(-3);
   });
 
   it('opens a task at the latest rows without yanking a scrolled reader on reconnect', async () => {

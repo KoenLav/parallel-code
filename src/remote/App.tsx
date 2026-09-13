@@ -1,7 +1,6 @@
 import { createSignal, createEffect, onMount, onCleanup, Show, Switch, Match } from 'solid-js';
 import { initAuth, getPairedToken } from './auth';
 import { connect, reconnect, agents, status, needsConnection, canControl } from './ws';
-import { readLocal, writeLocal } from './storage';
 import { AgentList } from './AgentList';
 import { AgentDetail } from './AgentDetail';
 import { ConnectScreen } from './ConnectScreen';
@@ -13,6 +12,7 @@ export function App() {
   const [authed, setAuthed] = createSignal(false);
   const [route, setRoute] = createSignal(window.location.hash.slice(1));
   const [pairing, setPairing] = createSignal(false);
+  const [viewOnly, setViewOnly] = createSignal(false);
   const [ready, setReady] = createSignal(false);
   const [createdTaskId, setCreatedTaskId] = createSignal('');
   const [createdName, setCreatedName] = createSignal('');
@@ -35,9 +35,10 @@ export function App() {
     navigate(new URLSearchParams({ task: id }).toString());
   }
   function onConnected() {
+    setViewOnly(false);
     setAuthed(true);
     connect();
-    if (!getPairedToken() && !readLocal('view-only')) setPairing(true);
+    if (!getPairedToken()) pairForTask();
   }
   function pairForTask() {
     setReady(false);
@@ -48,6 +49,12 @@ export function App() {
     if (!getPairedToken()) pairForTask();
   }
 
+  // A rejected saved pairing can fall back to viewing after the initial connection.
+  // Offer pairing then too, unless the user chose viewing only during this visit.
+  createEffect(() => {
+    if (authed() && status() === 'connected' && !getPairedToken() && !viewOnly()) pairForTask();
+  });
+
   onMount(() => {
     if (initAuth()) onConnected();
     const onHashChange = () => {
@@ -56,12 +63,12 @@ export function App() {
       setReady(false);
     };
     const onResume = () => {
-      if (
-        document.visibilityState === 'visible' &&
-        status() === 'disconnected' &&
-        !needsConnection()
-      )
-        reconnect();
+      // Home-screen apps can resume with a socket that still reports OPEN even
+      // though the OS discarded its network connection while suspended.
+      if (document.visibilityState === 'visible' && authed() && !needsConnection()) reconnect();
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) onResume();
     };
     // Keep the composer above phone keyboards, including Safari's visual viewport.
     const fitViewport = () => {
@@ -73,12 +80,14 @@ export function App() {
     window.addEventListener('hashchange', onHashChange);
     window.addEventListener('popstate', onHashChange);
     window.addEventListener('online', onResume);
+    window.addEventListener('pageshow', onPageShow);
     document.addEventListener('visibilitychange', onResume);
     window.visualViewport?.addEventListener('resize', fitViewport);
     onCleanup(() => {
       window.removeEventListener('hashchange', onHashChange);
       window.removeEventListener('popstate', onHashChange);
       window.removeEventListener('online', onResume);
+      window.removeEventListener('pageshow', onPageShow);
       document.removeEventListener('visibilitychange', onResume);
       window.visualViewport?.removeEventListener('resize', fitViewport);
       document.getElementById('root')?.style.removeProperty('height');
@@ -94,13 +103,13 @@ export function App() {
         <Match when={pairing()}>
           <PairScreen
             onPaired={() => {
-              writeLocal('view-only', '');
+              setViewOnly(false);
               reconnect();
               setPairing(false);
               setReady(true);
             }}
             onCancel={() => {
-              writeLocal('view-only', 'true');
+              setViewOnly(true);
               setPairing(false);
               if (route() === 'new') navigate('');
             }}

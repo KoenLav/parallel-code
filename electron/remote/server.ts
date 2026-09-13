@@ -1,11 +1,13 @@
 // electron/remote/server.ts
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
-import { existsSync, createReadStream } from 'fs';
+import { existsSync, createReadStream, readFileSync } from 'fs';
 import { join, resolve, relative, extname, isAbsolute } from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { randomBytes, randomInt, timingSafeEqual } from 'crypto';
+import { randomBytes, randomInt, timingSafeEqual, createHash } from 'crypto';
 import { networkInterfaces } from 'os';
+import { atomicWriteFileSync } from '../mcp/atomic.js';
+import { warn } from '../log.js';
 import {
   writeToAgent,
   resizeAgent,
@@ -230,7 +232,10 @@ const MIME: Record<string, string> = {
 };
 
 interface RemoteServer {
-  stop: () => Promise<void>;
+  /** Stop transport; explicit desktop disconnect also revokes remembered phones. */
+  stop: (forgetDevices?: boolean) => Promise<void>;
+  /** Enable remembered phones only when the desktop explicitly enables remote access. */
+  enableRememberedDevices: (filePath: string) => void;
   token: string;
   subtaskToken: string;
   mobileToken: string;
@@ -763,17 +768,51 @@ export function startRemoteServer(opts: {
   const subtaskTokenBuf = Buffer.from(subtaskToken);
   const mobileTokenBuf = Buffer.from(mobileToken);
 
-  // Tokens minted by successful device pairing. In-memory only: they die with
-  // the server, consistent with the mobile/coordinator tokens above. One entry
-  // per paired phone.
-  const pairedTokenBufs: Buffer[] = [];
-  // Bound the credential set: pairing is a user action on the desktop, so a
-  // handful covers every phone a person owns; beyond that the oldest is
-  // dropped. Eviction only stops future authentication with that token — a
-  // socket it already opened stays authenticated until it reconnects.
+  // Keep at most eight phones. Only hashes persist; bearer credentials stay on the phones.
+  // Eviction rejects future authentication; existing sockets stay open until reconnect.
   const MAX_PAIRED_TOKENS = 8;
+  let rememberedHashes: string[] = [];
+  let pairedTokenBufs: Buffer[] = [];
+  let pairedDevicesPath: string | undefined;
+
+  function enableRememberedDevices(filePath: string): void {
+    if (pairedDevicesPath === filePath) return;
+    let hashes: string[] = [];
+    try {
+      if (existsSync(filePath)) {
+        const stored: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
+        if (
+          !Array.isArray(stored) ||
+          !stored.every((v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v))
+        ) {
+          throw new Error('Invalid remembered phone credentials');
+        }
+        hashes = stored.slice(-MAX_PAIRED_TOKENS);
+      }
+    } catch {
+      // A damaged/unreadable credential file must not strand a running server.
+      // Reject old credentials, but allow fresh PIN pairing to recover access.
+      warn(
+        'Remote',
+        'Could not restore remembered phones. Pair this phone again to restore access.',
+      );
+    }
+    pairedDevicesPath = filePath;
+    rememberedHashes = hashes;
+    pairedTokenBufs = [...hashes.map((hash) => Buffer.from(hash, 'hex')), ...pairedTokenBufs].slice(
+      -MAX_PAIRED_TOKENS,
+    );
+  }
+
+  function saveRememberedDevices(hashes: string[]): void {
+    if (!pairedDevicesPath) throw new Error('Remembering devices is unavailable');
+    atomicWriteFileSync(pairedDevicesPath, JSON.stringify(hashes), { mode: 0o600 });
+    rememberedHashes = hashes;
+  }
+
   // At most one pending PIN at a time — a fresh mint replaces any prior one.
   let pairing: { pinBuf: Buffer; expiresAt: number; attemptsLeft: number } | null = null;
+  let stopping = false;
 
   function isPairedToken(buf: Buffer): boolean {
     // Timing-safe membership check; length guard avoids timingSafeEqual throwing.
@@ -788,7 +827,7 @@ export function startRemoteServer(opts: {
       return 'subtask';
     if (buf.length === mobileTokenBuf.length && timingSafeEqual(buf, mobileTokenBuf))
       return 'mobile';
-    if (isPairedToken(buf)) return 'paired';
+    if (isPairedToken(createHash('sha256').update(buf).digest())) return 'paired';
     return null;
   }
 
@@ -804,6 +843,7 @@ export function startRemoteServer(opts: {
   }
 
   function generatePairingPin(): { pin: string; expiresAt: number } {
+    if (stopping) throw new Error('Remote server is stopping');
     // 6-digit zero-padded PIN; single active PIN, short TTL, capped attempts.
     const pin = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const expiresAt = Date.now() + PAIRING_PIN_TTL_MS;
@@ -812,8 +852,11 @@ export function startRemoteServer(opts: {
   }
 
   /** Verify a submitted PIN; on success mints and returns a paired token. */
-  function verifyPairingPin(submitted: string): { ok: true; token: string } | { ok: false } {
-    if (!pairing || Date.now() > pairing.expiresAt) {
+  function verifyPairingPin(
+    submitted: string,
+    remember: boolean,
+  ): { ok: true; token: string } | { ok: false } {
+    if (stopping || !pairing || Date.now() > pairing.expiresAt) {
       pairing = null;
       return { ok: false };
     }
@@ -829,10 +872,16 @@ export function startRemoteServer(opts: {
     }
     pairing = null; // single-use
     const pairedToken = randomBytes(24).toString('base64url');
-    pairedTokenBufs.push(Buffer.from(pairedToken));
-    if (pairedTokenBufs.length > MAX_PAIRED_TOKENS) {
-      pairedTokenBufs.splice(0, pairedTokenBufs.length - MAX_PAIRED_TOKENS);
+    const hash = createHash('sha256').update(pairedToken).digest();
+    const nextTokens = [...pairedTokenBufs, hash].slice(-MAX_PAIRED_TOKENS);
+    const nextRemembered = rememberedHashes.filter((h) =>
+      nextTokens.some((t) => t.toString('hex') === h),
+    );
+    if (remember) nextRemembered.push(hash.toString('hex'));
+    if (remember || nextRemembered.length !== rememberedHashes.length) {
+      saveRememberedDevices(nextRemembered);
     }
+    pairedTokenBufs = nextTokens;
     return { ok: true, token: pairedToken };
   }
 
@@ -876,7 +925,18 @@ export function startRemoteServer(opts: {
           .then((body) => {
             const pin = typeof body.pin === 'string' ? body.pin.trim() : '';
             if (!/^\d{6}$/.test(pin)) return jsonEnd(400, { error: 'pin must be 6 digits' });
-            const outcome = verifyPairingPin(pin);
+            if (body.remember !== undefined && typeof body.remember !== 'boolean') {
+              return jsonEnd(400, { error: 'remember must be a boolean' });
+            }
+            let outcome;
+            try {
+              outcome = verifyPairingPin(pin, body.remember === true);
+            } catch {
+              return jsonEnd(500, {
+                error:
+                  'Could not remember this device. Try a new code or uncheck Keep this device authenticated.',
+              });
+            }
             if (!outcome.ok) return jsonEnd(401, { error: 'invalid or expired code' });
             jsonEnd(201, { token: outcome.token });
           })
@@ -1494,8 +1554,14 @@ export function startRemoteServer(opts: {
     },
     connectedClients: () => authenticatedClients.size,
     generatePairingPin,
-    stop: () =>
-      new Promise<void>((resolve) => {
+    enableRememberedDevices,
+    stop: (forgetDevices = false) => {
+      if (forgetDevices && pairedDevicesPath) saveRememberedDevices([]);
+      // server.close() drains pending HTTP bodies. They must not mint new
+      // credentials after explicit disconnect has revoked remembered phones.
+      stopping = true;
+      pairing = null;
+      return new Promise<void>((resolve) => {
         for (const timer of pendingSubmissions.values()) clearTimeout(timer);
         pendingSubmissions.clear();
         unsubSpawn();
@@ -1508,7 +1574,8 @@ export function startRemoteServer(opts: {
           clearTimeout(timeout);
           resolve();
         });
-      }),
+      });
+    },
   };
 
   return new Promise<RemoteServer>((resolve, reject) => {

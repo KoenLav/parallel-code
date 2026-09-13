@@ -247,14 +247,14 @@ textarea.mobile-input {
   resize: vertical;
 }
 .mobile-group {
-  margin-top: 24px;
+  margin-top: 16px;
 }
 .mobile-group h2 {
   display: flex;
   gap: 8px;
   font-size: 14px;
   color: var(--mobile-muted);
-  margin: 0 2px 10px;
+  margin: 0 2px 8px;
 }
 .mobile-group h2 span {
   color: #e0eaf3;
@@ -263,14 +263,14 @@ textarea.mobile-input {
 .agent-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
   text-align: left;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   border: 1px solid var(--mobile-border);
   background: #101821;
-  border-radius: 16px;
-  padding: 16px;
+  border-radius: 12px;
+  padding: 12px;
   color: #e0eaf3;
 }
 .agent-card:active {
@@ -291,14 +291,29 @@ textarea.mobile-input {
   font-weight: 600;
   line-height: 1.4;
   overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .agent-card-chevron {
   color: var(--mobile-muted);
   font-size: 24px;
   line-height: 1;
+  flex-shrink: 0;
 }
-.agent-card > .muted {
-  overflow-wrap: anywhere;
+.agent-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.agent-card-meta .muted {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .agent-status {
   display: inline-flex;
@@ -321,10 +336,8 @@ textarea.mobile-input {
   color: #b5c5d3;
   line-height: 1.5;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .mobile-footer {
   padding: 12px 16px max(12px, env(safe-area-inset-bottom));
@@ -335,7 +348,7 @@ textarea.mobile-input {
 .mobile-tabs {
   display: flex;
   gap: 4px;
-  padding: 8px 12px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--mobile-border);
   flex-shrink: 0;
 }
@@ -345,7 +358,7 @@ textarea.mobile-input {
   border: 0;
   border-radius: 10px;
   color: var(--mobile-muted);
-  min-height: 44px;
+  min-height: 36px;
   font-size: 14px;
 }
 .mobile-tabs button[aria-pressed='true'] {

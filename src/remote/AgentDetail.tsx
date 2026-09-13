@@ -140,7 +140,7 @@ export function AgentDetail(props: AgentDetailProps) {
   }
 
   onMount(() => {
-    if (!termContainer) return;
+    if (!termContainer || !terminalScroller) return;
     term = new Terminal({
       cols: 80,
       rows: 24,
@@ -185,28 +185,14 @@ export function AgentDetail(props: AgentDetailProps) {
     subscribeAgent(props.agentId);
     const observer = new ResizeObserver(fitTerminal);
     if (outputArea) observer.observe(outputArea);
-    // xterm's document-level gesture handler prevents native panning. Own
-    // single-finger gestures here so columns/rows pan before scrollback does.
+    // Own gestures across the entire pane, including space below a fitted grid.
+    // Pan the desktop grid first, then scroll terminal history at its edges.
     let touchX = 0;
     let touchY = 0;
+    let touchId: number | undefined;
     let historyPixels = 0;
-    const touchStart = (e: TouchEvent) => {
-      e.stopPropagation();
-      historyPixels = 0;
-      if (e.touches.length === 1) {
-        touchX = e.touches[0].clientX;
-        touchY = e.touches[0].clientY;
-      }
-    };
-    const touchMove = (e: TouchEvent) => {
-      e.stopPropagation();
-      // Let the browser handle pinch zoom.
-      if (!term || !terminalScroller || e.touches.length !== 1) return;
-      e.preventDefault();
-      const dx = touchX - e.touches[0].clientX;
-      const dy = touchY - e.touches[0].clientY;
-      touchX = e.touches[0].clientX;
-      touchY = e.touches[0].clientY;
+    const scrollTerminal = (dx: number, dy: number) => {
+      if (!term || !terminalScroller) return;
       terminalScroller.scrollLeft += dx;
       const previousTop = terminalScroller.scrollTop;
       terminalScroller.scrollTop = Math.max(
@@ -215,27 +201,73 @@ export function AgentDetail(props: AgentDetailProps) {
       );
       if (Math.abs(dy) >= Math.abs(dx)) {
         historyPixels += dy - (terminalScroller.scrollTop - previousTop);
-        const lineHeight = terminalLineHeight;
-        const lines = Math.trunc(historyPixels / lineHeight);
+        const lines = Math.trunc(historyPixels / terminalLineHeight);
         if (lines) {
           term.scrollLines(lines);
-          historyPixels -= lines * lineHeight;
+          historyPixels -= lines * terminalLineHeight;
         }
       }
       updateTerminalBottom();
     };
-    const touchEnd = (e: TouchEvent) => e.stopPropagation();
-    termContainer.addEventListener('touchstart', touchStart, { passive: true });
-    termContainer.addEventListener('touchmove', touchMove, { passive: false });
-    termContainer.addEventListener('touchend', touchEnd, { passive: true });
+    const touchStart = (e: TouchEvent) => {
+      e.stopPropagation();
+      historyPixels = 0;
+      touchId = undefined;
+      if (e.touches.length === 1) {
+        touchId = e.touches[0].identifier;
+        touchX = e.touches[0].clientX;
+        touchY = e.touches[0].clientY;
+      }
+    };
+    const touchMove = (e: TouchEvent) => {
+      e.stopPropagation();
+      // Let the browser handle pinch zoom.
+      if (e.touches.length !== 1) {
+        touchId = undefined;
+        return;
+      }
+      const touch = e.touches[0];
+      if (touchId !== touch.identifier) {
+        touchStart(e);
+        return;
+      }
+      e.preventDefault();
+      scrollTerminal(touchX - touch.clientX, touchY - touch.clientY);
+      touchX = touch.clientX;
+      touchY = touch.clientY;
+    };
+    const touchEnd = (e: TouchEvent) => {
+      e.stopPropagation();
+      touchId = undefined;
+      historyPixels = 0;
+    };
+    const wheel = (e: WheelEvent) => {
+      e.stopPropagation();
+      if (e.ctrlKey) return; // Preserve browser pinch-to-zoom.
+      e.preventDefault();
+      const scale =
+        e.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? terminalLineHeight
+          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? (terminalScroller?.clientHeight ?? terminalLineHeight)
+            : 1;
+      scrollTerminal(e.deltaX * scale, e.deltaY * scale);
+    };
+    terminalScroller.addEventListener('touchstart', touchStart, { passive: true });
+    terminalScroller.addEventListener('touchmove', touchMove, { passive: false });
+    terminalScroller.addEventListener('touchend', touchEnd, { passive: true });
+    terminalScroller.addEventListener('touchcancel', touchEnd, { passive: true });
+    terminalScroller.addEventListener('wheel', wheel, { passive: false, capture: true });
     onCleanup(() => {
       disposed = true;
       cancelAnimationFrame(renderFrame);
       cancelAnimationFrame(terminalFrame);
       observer.disconnect();
-      termContainer?.removeEventListener('touchstart', touchStart);
-      termContainer?.removeEventListener('touchmove', touchMove);
-      termContainer?.removeEventListener('touchend', touchEnd);
+      terminalScroller?.removeEventListener('touchstart', touchStart);
+      terminalScroller?.removeEventListener('touchmove', touchMove);
+      terminalScroller?.removeEventListener('touchend', touchEnd);
+      terminalScroller?.removeEventListener('touchcancel', touchEnd);
+      terminalScroller?.removeEventListener('wheel', wheel, true);
       unsubscribeAgent(props.agentId);
       cleanupScrollback();
       cleanupOutput();

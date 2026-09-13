@@ -45,16 +45,19 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
   const [qrDataUrl, setQrDataUrl] = createSignal<string | null>(null);
   const [qrError, setQrError] = createSignal<string | null>(null);
   const [starting, setStarting] = createSignal(false);
+  const [disconnecting, setDisconnecting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [copied, setCopied] = createSignal(false);
   const [mode, setMode] = createSignal<NetworkMode>('wifi');
   const [pairingPin, setPairingPin] = createSignal<string | null>(null);
   const [pairingError, setPairingError] = createSignal<string | null>(null);
   const [showRisks, setShowRisks] = createSignal(false);
+  let disconnectRequested = false;
   let stopPolling: (() => void) | undefined;
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
   let pairingTimer: ReturnType<typeof setTimeout> | undefined;
   let qrRequestId = 0;
+  let pairingRequestId = 0;
   onCleanup(() => {
     if (copiedTimer !== undefined) clearTimeout(copiedTimer);
     if (pairingTimer !== undefined) clearTimeout(pairingTimer);
@@ -63,17 +66,37 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
 
   // Clear the displayed PIN once it expires so a stale code isn't left on screen.
   async function handleGeneratePin() {
+    const requestId = ++pairingRequestId;
     setPairingError(null);
     try {
       const { pin, expiresAt } = await generatePairingPin();
+      if (requestId !== pairingRequestId) return;
       setPairingPin(pin);
       if (pairingTimer !== undefined) clearTimeout(pairingTimer);
-      pairingTimer = setTimeout(() => setPairingPin(null), Math.max(0, expiresAt - Date.now()));
+      pairingTimer = setTimeout(
+        () => {
+          setPairingPin(null);
+          void handleGeneratePin();
+        },
+        Math.max(0, expiresAt - Date.now()),
+      );
     } catch (err) {
+      if (requestId !== pairingRequestId) return;
       setPairingPin(null);
       setPairingError(err instanceof Error ? err.message : 'Could not generate a code');
     }
   }
+
+  // Prepare pairing whenever the connection dialog is ready, and refresh expired codes.
+  createEffect(() => {
+    if (!props.open || !store.remoteAccess.enabled) return;
+    void handleGeneratePin();
+    onCleanup(() => {
+      pairingRequestId++;
+      if (pairingTimer !== undefined) clearTimeout(pairingTimer);
+      setPairingPin(null);
+    });
+  });
 
   const activeUrl = createMemo(() => connectionUrlForMode(store.remoteAccess, mode()));
 
@@ -124,9 +147,16 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
 
   // Start server when modal opens
   createEffect(() => {
-    if (!props.open) return;
+    if (!props.open) {
+      disconnectRequested = false;
+      return;
+    }
+    if (!store.remoteAccess.enabled && disconnectRequested) {
+      if (!untrack(disconnecting)) props.onClose();
+      return;
+    }
 
-    if (!store.remoteAccess.enabled && !untrack(starting)) {
+    if (!store.remoteAccess.enabled && !untrack(starting) && !untrack(disconnecting)) {
       setStarting(true);
       setError(null);
       startRemoteAccess()
@@ -166,22 +196,32 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
   });
 
   async function handleDisconnect() {
-    stopPolling?.();
-    // The server's pairing state resets on stop; drop any PIN still on screen
-    // so it can't be entered against the new (empty) state.
-    setPairingPin(null);
-    if (pairingTimer !== undefined) clearTimeout(pairingTimer);
-    const result = await stopRemoteAccess();
-    if (!result.stopped) {
-      if (result.reason === 'coordinator_active') {
-        setError('Cannot disconnect while a coordinator is active. Stop the coordinator first.');
-      } else {
-        setError('Failed to disconnect. Please try again.');
+    if (disconnecting()) return;
+    disconnectRequested = true;
+    setDisconnecting(true);
+    try {
+      const result = await stopRemoteAccess();
+      if (!result.stopped) {
+        disconnectRequested = result.reason === 'coordinator_active';
+        setError(
+          result.reason === 'coordinator_active'
+            ? 'Cannot disconnect while a coordinator is active. Stop the coordinator first.'
+            : 'Failed to disconnect. Please try again.',
+        );
+        return;
       }
-      return;
+      stopPolling?.();
+      pairingRequestId++;
+      setPairingPin(null);
+      if (pairingTimer !== undefined) clearTimeout(pairingTimer);
+      setQrDataUrl(null);
+      props.onClose();
+    } catch (err) {
+      disconnectRequested = false;
+      setError(err instanceof Error ? err.message : 'Could not disconnect and revoke phone access');
+    } finally {
+      setDisconnecting(false);
     }
-    setQrDataUrl(null);
-    props.onClose();
   }
 
   async function handleCopyUrl() {
@@ -473,7 +513,7 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
                     'font-weight': '500',
                   }}
                 >
-                  Enable replies
+                  Get a new pairing code
                 </button>
                 <Show when={pairingError()}>
                   <span style={{ 'font-size': '12px', color: theme.error }}>{pairingError()}</span>
@@ -579,6 +619,7 @@ export function ConnectPhoneModal(props: ConnectPhoneModalProps) {
         {/* Disconnect — always available when server is running */}
         <button
           onClick={handleDisconnect}
+          disabled={disconnecting()}
           style={{
             padding: '7px 16px',
             background: 'transparent',

@@ -37,6 +37,12 @@ const scrollbackListeners = new Map<string, Set<ScrollbackListener>>();
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let connectionTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearConnectionTimer(): void {
+  if (connectionTimer) clearTimeout(connectionTimer);
+  connectionTimer = null;
+}
 // Which credential the open socket authenticated with. The paired token
 // (minted by entering the desktop PIN) is preferred because it is the one
 // that may type into terminals; the QR-code token only watches.
@@ -55,6 +61,7 @@ export { agents, status, needsConnection, canControl };
 export function connect(): void {
   // Allow reconnect when existing socket is closing (not just null)
   if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
+  clearConnectionTimer();
   if (ws) {
     ws.onclose = null;
     ws.onerror = null;
@@ -102,6 +109,7 @@ export function connect(): void {
 
     switch (msg.type) {
       case 'agents':
+        clearConnectionTimer();
         setStatus('connected');
         setCanControl(authTokenKind === 'paired');
         setAgentState('list', reconcile(msg.list, { key: 'agentId' }));
@@ -138,18 +146,19 @@ export function connect(): void {
     }
   };
 
-  ws.onclose = (event) => {
+  const onDisconnect = (code: number) => {
     if (ws !== socket) return;
+    clearConnectionTimer();
     ws = null;
     setStatus('disconnected');
     setCanControl(false);
     failPendingInputs();
     // 4001 = server rejected auth — the token is stale (the desktop restarted
-    // Remote Access, which rotates every token). A stale paired token falls
+    // Remote Access, or revoked this phone). A stale paired token falls
     // back to the QR-code token so the phone keeps watching and only loses
     // typing rights until it pairs again; a stale QR-code token means
     // reconnecting from scratch.
-    if (event.code === 4001) {
+    if (code === 4001) {
       if (authTokenKind === 'paired') {
         clearPairedToken();
         if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -160,10 +169,18 @@ export function connect(): void {
       setNeedsConnection(true);
       return;
     }
-    if (event.code === 4003) clearPairedToken();
+    if (code === 4003) clearPairedToken();
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 3000);
   };
+
+  ws.onclose = (event) => onDisconnect(event.code);
+  // A suspended phone or an unreachable computer may never finish opening the
+  // socket. Bound the entire handshake, including the authenticated snapshot.
+  connectionTimer = setTimeout(() => {
+    onDisconnect(1006);
+    socket.close();
+  }, 10000);
 
   ws.onerror = () => {
     if (ws === socket) socket.close();
@@ -172,6 +189,7 @@ export function connect(): void {
 
 /** Drop the current socket and connect again with the best available token. */
 export function reconnect(): void {
+  clearConnectionTimer();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;

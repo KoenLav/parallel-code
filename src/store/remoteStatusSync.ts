@@ -15,6 +15,34 @@ import { fireAndForget } from '../lib/ipc';
 import { IPC } from '../../electron/ipc/channels';
 import type { RemoteAttentionState, RemoteAgent } from '../../electron/remote/protocol';
 
+/** Pick recent content rather than terminal UI chrome for the phone's task cards. */
+export function remoteOutputPreview(rawTail: string): string {
+  // Preserve row boundaries before stripping cursor movement. DEC line-drawing
+  // characters otherwise appear as literal q's when their charset escapes vanish.
+  /* eslint-disable no-control-regex */
+  const text = stripAnsi(
+    rawTail
+      .replace(/\x1b\(0[\s\S]*?\x1b\(B/g, '\n')
+      .replace(/\x1b\[(?:\d+;)?\d*[Hf]|\x1b\[\d*[ABEF]/g, '\n'),
+  )
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+    .replace(
+      /You\s+have\s+\d+\s+usage\s+limit\s+resets?\s+available\.\s*Run\s+\/usage\s+to\s+use\s+one\./g,
+      '',
+    );
+  /* eslint-enable no-control-regex */
+  const lines = text.split(/\r\n?|\n/).map((line) => line.trim());
+  const content = lines.filter(
+    (line) =>
+      line &&
+      !/^(?:q\s*)+$/.test(line) &&
+      !/^[›❯─━═│┌┐└┘├┤┬┴┼╭╮╰╯\s]+$/.test(line) &&
+      !/^[│┃║]?\s*[›❯>]?\s*Ask\s+Codex\s+to\s+do\s+anything(?:…|\.{3})?\s*[│┃║]?$/i.test(line) &&
+      !/^gpt-\S+[ \t]+[^\r\n]*[·•][ \t]+(?:\/|~\/)[^\r\n]*$/.test(line),
+  );
+  return (content.at(-1) ?? '').slice(0, 300);
+}
+
 export function startRemoteStatusSync(): () => void {
   // Serialized snapshot of the last push, so we only send on actual change.
   let lastSerialized = '';
@@ -45,14 +73,10 @@ export function startRemoteStatusSync(): () => void {
         const agentId =
           task.agentIds.find((id) => store.agents[id]?.status === 'running') ?? task.agentIds[0];
         const agent = store.agents[agentId];
-        const lines = stripAnsi(getAgentOutputTail(agentId))
-          .split(/\r\n?|\n/)
-          .map((line) => line.trim())
-          .filter(Boolean);
         contexts[taskId] = {
           projectName: store.projects.find((project) => project.id === task.projectId)?.name ?? '',
           agentName: agent?.def.name ?? '',
-          lastLine: (lines.at(-1) ?? '').slice(0, 300),
+          lastLine: remoteOutputPreview(getAgentOutputTail(agentId)),
         };
       }
 

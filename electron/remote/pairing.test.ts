@@ -4,6 +4,9 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import http from 'http';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 vi.mock('../ipc/pty.js', () => ({
   writeToAgent: vi.fn(),
@@ -28,8 +31,9 @@ const { startRemoteServer, toFriendlyListenError } = await import('./server.js')
 type Resp = { status: number; json: () => Promise<unknown> };
 
 let port = 0;
-let stop: () => Promise<void>;
+let stop: (forgetDevices?: boolean) => Promise<void>;
 let mobileToken = '';
+let credentialsDir: string;
 let generatePin: () => { pin: string; expiresAt: number };
 const createTaskFromMobile = vi.fn(async () => ({ taskId: 'task-123' }));
 const getProjects = vi.fn(async () => [{ id: 'proj-1', name: 'Repo One' }]);
@@ -59,16 +63,14 @@ function req(method: string, path: string, token: string, body?: unknown): Promi
   });
 }
 
-async function pair(): Promise<string> {
+async function pair(remember = false): Promise<string> {
   const { pin } = generatePin();
-  const res = await req('POST', '/api/pair/verify', mobileToken, { pin });
+  const res = await req('POST', '/api/pair/verify', mobileToken, { pin, remember });
   expect(res.status).toBe(201);
   return ((await res.json()) as { token: string }).token;
 }
 
-beforeEach(async () => {
-  createTaskFromMobile.mockClear();
-  getProjects.mockClear();
+async function startServer(enableRemembered = true) {
   const srv = await startRemoteServer({
     port: 0,
     host: '127.0.0.1',
@@ -79,14 +81,121 @@ beforeEach(async () => {
     getProjects,
     createTaskFromMobile,
   });
+  if (enableRemembered) srv.enableRememberedDevices(join(credentialsDir, 'phones.json'));
   port = srv.port;
   stop = srv.stop;
   mobileToken = srv.mobileToken;
   generatePin = srv.generatePairingPin;
+  return srv;
+}
+
+beforeEach(async () => {
+  createTaskFromMobile.mockClear();
+  getProjects.mockClear();
+  credentialsDir = mkdtempSync(join(tmpdir(), 'phone-pairing-'));
+  await startServer();
 });
 
 afterEach(async () => {
   await stop();
+  rmSync(credentialsDir, { recursive: true, force: true });
+});
+
+describe('remembered phones', () => {
+  it('rejects an in-flight pairing body completed during explicit disconnect', async () => {
+    const { pin } = generatePin();
+    const body = JSON.stringify({ pin, remember: true });
+    const request = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: '/api/pair/verify',
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${mobileToken}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        Expect: '100-continue',
+      },
+    });
+    const response = new Promise<number>((resolve, reject) => {
+      request.on('error', reject);
+      request.on('response', (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode ?? 0));
+      });
+    });
+    const acceptedHeaders = new Promise<void>((resolve) => request.once('continue', resolve));
+    request.flushHeaders();
+    await acceptedHeaders;
+    request.write(body.slice(0, -1));
+    const stopped = stop(true);
+    request.end(body.slice(-1));
+    expect(await response).toBe(401);
+    await stopped;
+    expect(JSON.parse(readFileSync(join(credentialsDir, 'phones.json'), 'utf8'))).toEqual([]);
+    await startServer();
+  });
+
+  it.each(['{broken', '{}', '["invalid-hash"]'])(
+    'recovers through fresh pairing when the credential file is invalid: %s',
+    async (contents) => {
+      const oldToken = await pair(true);
+      await stop();
+      writeFileSync(join(credentialsDir, 'phones.json'), contents);
+      await startServer();
+      expect((await req('GET', '/api/mobile/projects', oldToken)).status).toBe(401);
+      const newToken = await pair(true);
+      await stop();
+      await startServer();
+      expect((await req('GET', '/api/mobile/projects', newToken)).status).toBe(200);
+    },
+  );
+
+  it('does not accept remembered phones until remote access is explicitly enabled', async () => {
+    const paired = await pair(true);
+    await stop();
+    const srv = await startServer(false);
+    expect((await req('GET', '/api/mobile/projects', paired)).status).toBe(401);
+    srv.enableRememberedDevices(join(credentialsDir, 'phones.json'));
+    expect((await req('GET', '/api/mobile/projects', paired)).status).toBe(200);
+  });
+
+  it('keeps opted-in phones across restarts without persisting bearer tokens', async () => {
+    const paired = await pair(true);
+    const oldMobile = mobileToken;
+    const file = join(credentialsDir, 'phones.json');
+    expect(readFileSync(file, 'utf8')).not.toContain(paired);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    await stop();
+    await startServer();
+    expect((await req('GET', '/api/mobile/projects', paired)).status).toBe(200);
+    expect((await req('GET', '/api/agents', oldMobile)).status).toBe(401);
+    expect((await req('GET', '/api/tasks', paired)).status).toBe(403);
+  });
+
+  it('forgets session-only phones on restart', async () => {
+    const paired = await pair();
+    await stop();
+    await startServer();
+    expect((await req('GET', '/api/mobile/projects', paired)).status).toBe(401);
+  });
+
+  it('revokes remembered phones on explicit disconnect', async () => {
+    const paired = await pair(true);
+    await stop();
+    const srv = await startServer();
+    await srv.stop(true);
+    await startServer();
+    expect((await req('GET', '/api/mobile/projects', paired)).status).toBe(401);
+  });
+
+  it('evicts the oldest remembered phone when the credential limit is reached', async () => {
+    const oldest = await pair(true);
+    for (let i = 0; i < 8; i++) await pair(true);
+    await stop();
+    await startServer();
+    expect((await req('GET', '/api/mobile/projects', oldest)).status).toBe(401);
+  });
 });
 
 describe('pairing', () => {

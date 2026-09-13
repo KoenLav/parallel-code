@@ -166,24 +166,26 @@ export function AgentList(props: AgentListProps) {
                           onClick={() => props.onSelect(agent.taskId)}
                         >
                           <div class="agent-card-top">
-                            <strong>{agent.taskName}</strong>
+                            <strong title={agent.taskName}>{agent.taskName}</strong>
                             <span class="agent-card-chevron" aria-hidden="true">
                               ›
                             </span>
                           </div>
-                          <p class="muted">
-                            {[agent.projectName, agent.agentName].filter(Boolean).join(' · ') ||
-                              'Agent task'}
-                          </p>
+                          <div class="agent-card-meta">
+                            <p class="muted">
+                              {[agent.projectName, agent.agentName].filter(Boolean).join(' · ') ||
+                                'Agent task'}
+                            </p>
+                            <span class="agent-status" style={{ color: display().color }}>
+                              <span class="status-dot" aria-hidden="true" />
+                              {display().label}
+                            </span>
+                          </div>
                           <Show when={agent.lastLine}>
                             <p class="agent-preview" title="Recent terminal output">
                               {agent.lastLine}
                             </p>
                           </Show>
-                          <span class="agent-status" style={{ color: display().color }}>
-                            <span class="status-dot" aria-hidden="true" />
-                            {display().label}
-                          </span>
                         </button>
                       );
                     }}

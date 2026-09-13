@@ -1378,6 +1378,7 @@ export function registerAllHandlers(win: BrowserWindow): void {
           unavailableReason: 'coordinator_active' as const,
         };
       }
+      remoteServer.enableRememberedDevices(path.join(getUserDataDir(), 'paired-phones.json'));
       remoteServerRequestedManually = true;
       remoteServerPendingStop = false;
       return {
@@ -1394,6 +1395,7 @@ export function registerAllHandlers(win: BrowserWindow): void {
       port: args.port ?? defaultRemotePort,
       ...remoteServerOpts,
     });
+    remoteServer.enableRememberedDevices(path.join(getUserDataDir(), 'paired-phones.json'));
     remoteServerRequestedManually = true;
     remoteServerPendingStop = false;
     return {
@@ -1416,7 +1418,7 @@ export function registerAllHandlers(win: BrowserWindow): void {
       );
       return { stopped: false, reason: 'coordinator_active' };
     }
-    await remoteServer.stop();
+    await remoteServer.stop(true);
     remoteServer = null;
     remoteServerRequestedManually = false;
     return { stopped: true };
@@ -1508,7 +1510,7 @@ export function registerAllHandlers(win: BrowserWindow): void {
           !coordinator?.hasActiveCoordinator() &&
           (remoteServerPendingStop || (remoteServerStartedForMcp && !remoteServerRequestedManually))
         ) {
-          await remoteServer.stop();
+          await remoteServer.stop(remoteServerPendingStop);
           remoteServer = null;
           remoteServerStartedForMcp = false;
           remoteServerRequestedManually = false;

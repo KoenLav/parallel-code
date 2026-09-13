@@ -40,6 +40,7 @@ beforeEach(() => {
     ['parallel-code-token', 'watch'],
     ['parallel-code-paired-token', 'control'],
   ]);
+  vi.stubGlobal('sessionStorage', { getItem: () => null, removeItem: vi.fn() });
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => storage.get(key) ?? null,
     removeItem: (key: string) => storage.delete(key),
@@ -62,6 +63,43 @@ async function connected() {
 }
 
 describe('phone message delivery', () => {
+  it.each([false, true])('recovers a stalled handshake (socket open: %s)', async (opened) => {
+    const client = await import('./ws');
+    client.connect();
+    const stalled = Socket.instances[0];
+    if (opened) stalled.open();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(client.status()).toBe('disconnected');
+    expect(stalled.readyState).toBe(3);
+    expect(localStorage.getItem('parallel-code-paired-token')).toBe('control');
+    await vi.advanceTimersByTimeAsync(3000);
+    const replacement = Socket.instances[1];
+    replacement.open();
+    replacement.receive({ type: 'agents', list: [] });
+    // Late events from the abandoned connection must not affect its replacement.
+    stalled.disconnect(4001);
+    expect(client.status()).toBe('connected');
+    expect(client.canControl()).toBe(true);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(Socket.instances).toHaveLength(2);
+    expect(client.status()).toBe('connected');
+  });
+
+  it('cancels the previous handshake deadline on manual retry', async () => {
+    const client = await import('./ws');
+    client.connect();
+    await vi.advanceTimersByTimeAsync(9000);
+    client.reconnect();
+    const replacement = Socket.instances[1];
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(client.status()).toBe('connecting');
+    expect(replacement.readyState).toBe(Socket.CONNECTING);
+    replacement.open();
+    replacement.receive({ type: 'agents', list: [] });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(client.status()).toBe('connected');
+  });
+
   it('waits for authentication before enabling control', async () => {
     const client = await import('./ws');
     client.connect();

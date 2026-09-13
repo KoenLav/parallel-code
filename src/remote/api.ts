@@ -38,12 +38,12 @@ async function request<T>(
 }
 
 /** Submit the desktop PIN; returns the elevated paired token on success. */
-export async function verifyPairingPin(pin: string): Promise<string> {
+export async function verifyPairingPin(pin: string, remember: boolean): Promise<string> {
   const token = getToken();
   if (!token) throw new ApiError('Not connected', 401);
   const r = await request<{ token: string }>('/api/pair/verify', {
     method: 'POST',
-    body: { pin },
+    body: { pin, remember },
     token,
   });
   return r.token;

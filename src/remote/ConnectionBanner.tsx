@@ -8,7 +8,7 @@ export function ConnectionBanner() {
         <span>
           {status() === 'connecting'
             ? 'Connecting to your computer…'
-            : 'Connection lost. Showing the last received state.'}
+            : 'Cannot reach your computer. Keep Parallel Code open and check your connection.'}
         </span>
         <button class="mobile-button quiet" onClick={reconnect}>
           Retry

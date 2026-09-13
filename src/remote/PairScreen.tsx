@@ -9,6 +9,7 @@ interface PairScreenProps {
 
 export function PairScreen(props: PairScreenProps) {
   const [pin, setPin] = createSignal('');
+  const [remember, setRemember] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
 
@@ -18,7 +19,7 @@ export function PairScreen(props: PairScreenProps) {
     setBusy(true);
     setError(null);
     try {
-      setPairedToken(await verifyPairingPin(pin()));
+      setPairedToken(await verifyPairingPin(pin(), remember()), remember());
       props.onPaired();
     } catch (err) {
       setError(
@@ -47,8 +48,7 @@ export function PairScreen(props: PairScreenProps) {
           </p>
         </div>
         <p>
-          In <strong>Connect Phone</strong> on your computer, choose <strong>Enable replies</strong>{' '}
-          to get your six-digit code.
+          Your six-digit code is ready in <strong>Connect Phone</strong> on your computer.
         </p>
         <form class="mobile-form" onSubmit={handleSubmit}>
           <label>
@@ -64,6 +64,18 @@ export function PairScreen(props: PairScreenProps) {
               onInput={(e) => setPin(e.currentTarget.value.replace(/\D/g, '').slice(0, 6))}
               disabled={busy()}
             />
+          </label>
+          <label>
+            <span>
+              <input
+                type="checkbox"
+                checked={remember()}
+                onChange={(e) => setRemember(e.currentTarget.checked)}
+                disabled={busy()}
+              />{' '}
+              Keep this device authenticated
+            </span>
+            <span>Stay paired after restarting your computer. Use only on a phone you trust.</span>
           </label>
           <Show when={error()}>
             <p class="mobile-error" role="alert">
