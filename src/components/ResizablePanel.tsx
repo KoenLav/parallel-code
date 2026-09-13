@@ -30,13 +30,13 @@ export interface PanelChild {
 interface ResizablePanelProps {
   direction: 'horizontal' | 'vertical';
   children: PanelChild[];
-  /** When set, user-drag pixel sizes persist under `${persistKey}:${childId}`. */
+  /** Persist drag sizes under `${persistKey}:${childId}` (pixels for fixed
+   *  children, relative weights for multiple absorbers). */
   persistKey?: string;
   /** IDs of the children that flex-absorb remaining space. Defaults to the
    *  last child. Multiple entries split remaining space equally via
-   *  `flex: 1 1 0` on each. A user-pinned child always takes its pinned size;
-   *  on drag, absorbers adjacent to non-absorbers are never pinned so they
-   *  keep filling remaining space after release. */
+   *  `flex: 1 1 0` on each. A sole absorber stays flexible; multiple absorbers
+   *  save their proportions together after a drag. */
   absorberIds?: string[];
   class?: string;
   style?: JSX.CSSProperties;
@@ -68,7 +68,7 @@ export function ResizablePanel(props: ResizablePanelProps) {
    *  and delete so the store self-heals instead of silently diverging from
    *  what the user sees.
    *
-   *  Multi-absorber panels store pin values as flex-grow ratios (both sides
+   *  Multi-absorber panels store pin values as flex-grow ratios (all absorbers
    *  pinned after a drag). If only ONE absorber carries a pin while the others
    *  are unpinned, it's a stale pixel value from before the child was promoted
    *  to absorber status — treat it as stale to prevent a 300:1 ratio that
@@ -187,24 +187,30 @@ export function ResizablePanel(props: ResizablePanelProps) {
     const rightMin = rightChild.minSize ?? 0;
     let latestLeft = startLeft;
     let latestRight = startRight;
+    const absorberSizes: Record<string, number> = {};
+    for (const child of props.children) {
+      if (isAbsorber(child.id) && !child.noPin?.()) {
+        absorberSizes[child.id] = measureWrapper(child.id);
+      }
+    }
 
     // When one side is noPin its size stays fixed at content. If the layout
     // absorber is a *separate* child elsewhere in the tree, the freed space
     // flows through it — measure up front so the drag can clamp by its
     // minSize. If the absorber is the noPin side's neighbor (sole-absorber +
-    // noPin in the same child, e.g. split-mode shell-section), absorberPresent
-    // stays false; the drag still works because the neighbor's flex:1 1 0
+    // noPin in the same child, e.g. split-mode shell-section), no rerouted
+    // absorber is needed; the drag still works because the neighbor's flex:1 1 0
     // grows/shrinks naturally and the other side's own minSize covers clamps.
     let absorberStart = 0;
     let absorberMin = 0;
-    let absorberPresent = false;
+    let reroutedAbsorberId: string | undefined;
     if (leftNoPin || rightNoPin) {
       for (const c of props.children) {
         if (c.id === leftChild.id || c.id === rightChild.id) continue;
         if (isAbsorber(c.id)) {
           absorberStart = measureWrapper(c.id);
           absorberMin = c.minSize ?? 0;
-          absorberPresent = true;
+          reroutedAbsorberId = c.id;
           break;
         }
       }
@@ -218,10 +224,10 @@ export function ResizablePanel(props: ResizablePanelProps) {
       // Absorber clamps when noPin reroutes the delta through it. With
       // rightNoPin the absorber gives up `delta`; with leftNoPin it absorbs
       // `-delta`. Either way the absorber must stay above its minSize.
-      if (rightNoPin && absorberPresent && absorberStart - delta < absorberMin) {
+      if (rightNoPin && reroutedAbsorberId && absorberStart - delta < absorberMin) {
         delta = absorberStart - absorberMin;
       }
-      if (leftNoPin && absorberPresent && absorberStart + delta < absorberMin) {
+      if (leftNoPin && reroutedAbsorberId && absorberStart + delta < absorberMin) {
         delta = absorberMin - absorberStart;
       }
       latestLeft = startLeft + delta;
@@ -229,7 +235,12 @@ export function ResizablePanel(props: ResizablePanelProps) {
       // Skip the override on noPin children so they stay content-sized; also
       // skip on a sole absorber adjacent to a noPin sibling, since pinning the
       // absorber temporarily would steal the space the noPin child can't take.
-      const override: Record<string, number> = {};
+      // Freeze every absorber: leaving only a fractional grow weight (e.g.
+      // notes at 0.25) in flex layout would consume only part of the free space.
+      const override: Record<string, number> = soleAbs ? {} : { ...absorberSizes };
+      if (!soleAbs && reroutedAbsorberId) {
+        override[reroutedAbsorberId] = absorberStart + (leftNoPin ? delta : -delta);
+      }
       if (!leftNoPin && !(leftIsAbs && rightNoPin && soleAbs)) {
         override[leftChild.id] = latestLeft;
       }
@@ -242,16 +253,25 @@ export function ResizablePanel(props: ResizablePanelProps) {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       setDraggingIdx(null);
-      // An absorber adjacent to a non-absorber keeps its flex:1 1 0 role on
-      // drag-release (otherwise panels like the AI terminal would stop filling
-      // remaining space after any drag involving their edge). When both sides
-      // are absorbers, pin both so the user's explicit split survives. noPin
-      // children are never pinned regardless of side.
-      const leftKey = leftNoPin || (leftIsAbs && !rightIsAbs) ? null : keyFor(leftChild.id);
-      const rightKey = rightNoPin || (rightIsAbs && !leftIsAbs) ? null : keyFor(rightChild.id);
+      if (latestLeft === startLeft && latestRight === startRight) {
+        setDragOverride({});
+        return;
+      }
+      const leftKey = leftNoPin || leftIsAbs ? null : keyFor(leftChild.id);
+      const rightKey = rightNoPin || rightIsAbs ? null : keyFor(rightChild.id);
+      // Capture all absorber sizes before changing any styles. Saving only
+      // adjacent absorbers loses the split or mixes old weights with pixels.
+      const absorberPins = soleAbs
+        ? []
+        : props.children
+            .filter((child) => isAbsorber(child.id) && !child.noPin?.())
+            .map((child) => ({ key: keyFor(child.id), size: measureWrapper(child.id) }));
       batch(() => {
         if (leftKey) setPanelUserSize(leftKey, latestLeft);
         if (rightKey) setPanelUserSize(rightKey, latestRight);
+        for (const { key, size } of absorberPins) {
+          if (key && size > 0) setPanelUserSize(key, size);
+        }
         // Clear the drag override in the same batch so there's no frame where
         // both the override and the fresh userSize are absent.
         setDragOverride({});
