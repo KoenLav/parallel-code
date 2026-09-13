@@ -35,7 +35,7 @@ describe('resolvePanelCloseTarget', () => {
   });
 
   it('spares the active terminal while the new-task panel has focus', () => {
-    expect(resolveShellCloseTarget({ ...ACTIVE_TERMINAL, newTaskPanelFocused: true })).toBeNull();
+    expect(resolvePanelCloseTarget({ ...ACTIVE_TERMINAL, newTaskPanelFocused: true })).toBeNull();
   });
 
   it('spares a focused task shell while the sidebar has focus', () => {
