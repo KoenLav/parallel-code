@@ -152,3 +152,33 @@ export function startCanvasAutoOpen(): () => void {
     if (opened && !task.canvasTabs?.length) openCanvasDocument(task.id, opened);
   });
 }
+
+/** One browser per task; its last URL survives closing the tab. */
+export function openCanvasBrowser(taskId: string): void {
+  const task = store.tasks[taskId];
+  if (!task) return;
+  const tab: CanvasTab = { kind: 'browser', path: 'preview' };
+  updateCanvas(taskId, {
+    canvasTabs: withTab(task.canvasTabs ?? [], tab),
+    canvasActiveTab: canvasTabKey(tab),
+    canvasOpen: true,
+  });
+  void saveState();
+}
+
+export function setTaskBrowserUrl(taskId: string, url: string): void {
+  if (!store.tasks[taskId] || store.tasks[taskId].browserUrl === url) return;
+  setStore('tasks', taskId, 'browserUrl', url);
+  void saveState();
+}
+
+export function appendBrowserReference(taskId: string, reference: string): void {
+  const task = store.tasks[taskId];
+  if (!task) return;
+  const draft = task.prefillPrompt ?? task.promptDraft ?? '';
+  const text = draft ? `${draft}\n\n${reference}` : reference;
+  batch(() => {
+    setStore('tasks', taskId, { promptDraft: text, prefillPrompt: text, promptDraftActive: true });
+    setStore('showPromptInput', true);
+  });
+}

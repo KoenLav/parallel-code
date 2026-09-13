@@ -18,12 +18,14 @@ interface CanvasTabStripProps {
   onCloseAll: () => void;
 }
 
-/** What the "+" menu offers. Browser and code views are meant to join. */
+/** What the "+" menu offers. */
 const CANVAS_KINDS: Array<{ kind: CanvasTabKind; label: string }> = [
   { kind: 'markdown', label: 'Markdown file…' },
+  { kind: 'browser', label: 'Browser' },
 ];
 
-const fileName = (path: string): string => path.split('/').pop() ?? path;
+const tabLabel = (tab: CanvasTab): string =>
+  tab.kind === 'browser' ? 'Browser' : (tab.path.split('/').pop() ?? tab.path);
 
 /** The header of the canvas column: one tab per open document, a "+" for
  *  more, and a cross that closes the whole column. */
@@ -56,7 +58,7 @@ export function CanvasTabStrip(props: CanvasTabStripProps) {
                 role="tab"
                 tabIndex={0}
                 aria-selected={isActive()}
-                title={tab.path}
+                title={tab.kind === 'browser' ? 'Browser preview' : tab.path}
                 onClick={() => props.onActivate(key)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') props.onActivate(key);
@@ -76,11 +78,11 @@ export function CanvasTabStrip(props: CanvasTabStripProps) {
                 }}
               >
                 <span style={{ overflow: 'hidden', 'text-overflow': 'ellipsis' }}>
-                  {fileName(tab.path)}
+                  {tabLabel(tab)}
                 </span>
                 <button
                   type="button"
-                  aria-label={`Close ${fileName(tab.path)}`}
+                  aria-label={`Close ${tabLabel(tab)}`}
                   title={props.dirty[key] ? 'Unsaved edits. Close this tab' : 'Close this tab'}
                   onClick={(e) => {
                     e.stopPropagation();

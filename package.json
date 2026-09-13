@@ -121,7 +121,8 @@
       "dist/**/*",
       "dist-electron/**/*",
       "dist-remote/**/*",
-      "electron/preload.cjs"
+      "electron/preload.cjs",
+      "electron/browser-preload.cjs"
     ],
     "asarUnpack": [
       "**/node-pty/**",

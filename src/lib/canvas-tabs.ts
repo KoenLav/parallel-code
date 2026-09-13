@@ -14,7 +14,8 @@ export function tabFromKey(key: string): CanvasTab | null {
   const at = key.indexOf(':');
   if (at === -1) return null;
   const kind = key.slice(0, at);
-  return kind === 'markdown' ? { kind, path: key.slice(at + 1) } : null;
+  const path = key.slice(at + 1);
+  return kind === 'markdown' || (kind === 'browser' && path === 'preview') ? { kind, path } : null;
 }
 
 /** `tabs` with `tab` added at the end unless it is already there. */

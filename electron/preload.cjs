@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
 // Keep this literal list in sync with electron/ipc/channel-manifest.json.
 // Electron sandboxed preloads cannot require arbitrary local JSON files.
 const ALLOWED_CHANNELS = new Set([
+  'browser_command',
+  'browser_bounds',
+  'browser_state',
   'spawn_agent',
   'write_to_agent',
   'resize_agent',

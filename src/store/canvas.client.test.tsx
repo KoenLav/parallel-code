@@ -11,6 +11,8 @@ import {
   closeTaskCanvas,
   applyPlanContent,
   openCanvasDocument,
+  openCanvasBrowser,
+  appendBrowserReference,
   openTaskCanvas,
   startCanvasAutoOpen,
 } from './canvas';
@@ -296,5 +298,30 @@ describe('task column width with the canvas', () => {
     setPanelUserSize('task:task-1:canvas-cols:canvas', 900);
     closeTaskCanvas('task-1');
     expect(columnWidth()).toBe(300);
+  });
+});
+
+describe('browser canvas', () => {
+  it('opens a single browser beside existing documents', () => {
+    openCanvasDocument('task-1', 'README.md');
+    openCanvasBrowser('task-1');
+    openCanvasBrowser('task-1');
+    expect(store.tasks['task-1'].canvasTabs).toEqual([
+      md('README.md'),
+      { kind: 'browser', path: 'preview' },
+    ]);
+    expect(store.tasks['task-1'].canvasActiveTab).toBe('browser:preview');
+  });
+  it('appends references to the unsent draft and makes the prompt visible', () => {
+    setStore('tasks', 'task-1', 'promptDraft', 'Make this smaller');
+    setStore('showPromptInput', false);
+    appendBrowserReference('task-1', 'Selected element #save');
+    appendBrowserReference('task-1', 'Selected element #cancel');
+    expect(store.tasks['task-1'].prefillPrompt).toBe(
+      'Make this smaller\n\nSelected element #save\n\nSelected element #cancel',
+    );
+    expect(store.tasks['task-1'].promptDraftActive).toBe(true);
+    expect(store.showPromptInput).toBe(true);
+    expect(invoke).not.toHaveBeenCalledWith(IPC.WriteToAgent, expect.anything());
   });
 });

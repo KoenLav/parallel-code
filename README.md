@@ -85,6 +85,7 @@ When you're happy with the result, merge the branch back to main from the sideba
 - **Steps tracking panel** — engineering-manager-style timeline of agent progress (writes to `.claude/steps.json`)
 - **Notes panel per task** — jot ideas, then send the notes straight to the agent as a prompt
 - **Canvas per task** — a Markdown file from the worktree rendered live as the agent writes it; edit it in place, or select a passage and send it to the agent with your question
+- **Browser preview in the canvas** — run a local app in the task shell, open **+ → Browser**, and pick elements to reference in your prompt ([usage and limits](docs/browser-preview.md))
 - **PR CI status watcher** — desktop notification when GitHub checks settle
 - Shell terminals per task, scoped to the worktree
 - **Direct mode** for working on the main branch without isolation, plus support for **folders without a git repo**

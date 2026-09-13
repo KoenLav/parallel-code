@@ -1342,3 +1342,36 @@ describe('saveState failure reporting', () => {
     }
   });
 });
+
+describe('browser preview persistence', () => {
+  it('restores browser tabs and URLs for active and collapsed tasks', async () => {
+    const tab = { kind: 'browser', path: 'preview' };
+    const task = {
+      ...persistedTask(agentDef()),
+      canvasTabs: [tab],
+      canvasActiveTab: 'browser:preview',
+      browserUrl: 'http://localhost:5173/',
+    };
+    mockInvoke.mockResolvedValueOnce(
+      JSON.stringify({
+        projects: [{ id: 'project-1', name: 'Repo', path: '/repo', color: 'blue' }],
+        taskOrder: ['task-1'],
+        collapsedTaskOrder: ['task-2'],
+        tasks: { 'task-1': task, 'task-2': { ...task, id: 'task-2', collapsed: true } },
+      }),
+    );
+    await loadState();
+    for (const id of ['task-1', 'task-2']) {
+      expect(store.tasks[id]).toMatchObject({
+        canvasTabs: [tab],
+        canvasActiveTab: 'browser:preview',
+        browserUrl: task.browserUrl,
+      });
+    }
+    mockInvoke.mockClear();
+    await saveState();
+    const saved = JSON.parse(mockInvoke.mock.calls[0][1].json);
+    expect(saved.tasks['task-1'].browserUrl).toBe(task.browserUrl);
+    expect(saved.tasks['task-2'].browserUrl).toBe(task.browserUrl);
+  });
+});

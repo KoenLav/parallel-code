@@ -31,6 +31,9 @@ export {
 } from './agents';
 export {
   openCanvasDocument,
+  openCanvasBrowser,
+  setTaskBrowserUrl,
+  appendBrowserReference,
   activateCanvasTab,
   closeCanvasTab,
   openTaskCanvas,

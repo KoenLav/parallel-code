@@ -1,3 +1,4 @@
+import { registerBrowserHandlers } from './ipc/browser.js';
 import { app, autoUpdater, BrowserWindow, Menu, ipcMain, session, shell } from 'electron';
 import { buildMenuTemplate } from './menu-template.js';
 import { restoreWindow } from './window-restore.js';
@@ -196,6 +197,7 @@ function createWindow() {
   registerLogHandler(ipcMain);
   installIpcTracing(ipcMain);
   registerAllHandlers(mainWindow);
+  registerBrowserHandlers(mainWindow);
 
   // Open links in external browser instead of inside Electron
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

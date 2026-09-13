@@ -11,6 +11,7 @@ describe('canvas tabs', () => {
   it('keys round-trip, colons in the path included', () => {
     const tab = md('docs/a:b.md');
     expect(tabFromKey(canvasTabKey(tab))).toEqual(tab);
+    expect(tabFromKey('browser:preview')).toEqual({ kind: 'browser', path: 'preview' });
     expect(tabFromKey('browser:https://x')).toBeNull();
     expect(tabFromKey('nonsense')).toBeNull();
   });

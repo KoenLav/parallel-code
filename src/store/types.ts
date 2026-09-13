@@ -133,13 +133,11 @@ export interface Agent {
   attachExisting?: boolean;
 }
 
-/** What a canvas tab shows. Only Markdown for now; browser and code views are
- *  meant to join, which is why the kind is stored. */
-export type CanvasTabKind = 'markdown';
+export type CanvasTabKind = 'markdown' | 'browser';
 
 export interface CanvasTab {
   kind: CanvasTabKind;
-  /** Worktree-relative path of the file. */
+  /** Worktree-relative file path, or "preview" for the task browser. */
   path: string;
 }
 
@@ -200,6 +198,7 @@ export interface Task {
   canvasTabs?: CanvasTab[];
   /** Key (see canvasTabKey) of the tab in front. */
   canvasActiveTab?: string;
+  browserUrl?: string;
   /** Column shown without a tab (the user asked for it). Not persisted. */
   canvasOpen?: boolean;
   stepsEnabled?: boolean;
@@ -283,6 +282,7 @@ export interface PersistedTask {
   canvasPath?: string;
   canvasTabs?: CanvasTab[];
   canvasActiveTab?: string;
+  browserUrl?: string;
   stepsEnabled?: boolean;
   branchAdoptedFrom?: string;
   branchOfferDismissed?: string;

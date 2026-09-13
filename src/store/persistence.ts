@@ -126,7 +126,11 @@ function validAgentIndex(value: unknown): number | undefined {
 /** The canvas tabs of a persisted task; a pre-tabs `canvasPath` becomes one tab. */
 function restoredCanvas(pt: PersistedTask): Pick<Task, 'canvasTabs' | 'canvasActiveTab'> {
   const tabs = Array.isArray(pt.canvasTabs)
-    ? pt.canvasTabs.filter((t) => t?.kind === 'markdown' && typeof t.path === 'string')
+    ? pt.canvasTabs.filter(
+        (t) =>
+          typeof t?.path === 'string' &&
+          (t.kind === 'markdown' || (t.kind === 'browser' && t.path === 'preview')),
+      )
     : typeof pt.canvasPath === 'string'
       ? [{ kind: 'markdown' as const, path: pt.canvasPath }]
       : [];
@@ -179,6 +183,7 @@ function toPersistedTask(task: Task, agentDefs: AgentDef[], collapsed?: boolean)
     planFileName: task.planFileName,
     canvasTabs: task.canvasTabs,
     canvasActiveTab: task.canvasActiveTab,
+    browserUrl: task.browserUrl,
     stepsEnabled: task.stepsEnabled,
     branchAdoptedFrom: task.branchAdoptedFrom,
     branchOfferDismissed: task.branchOfferDismissed,
@@ -746,6 +751,7 @@ export async function loadState(): Promise<void> {
           shellAgentIds,
           notes: pt.notes,
           promptDraft: typeof pt.promptDraft === 'string' ? pt.promptDraft : undefined,
+          browserUrl: typeof pt.browserUrl === 'string' ? pt.browserUrl : undefined,
           lastPrompt: pt.lastPrompt,
           promptedAgentIds: restoredPromptedAgentIds(pt, agentIds),
           initialPrompt: typeof pt.initialPrompt === 'string' ? pt.initialPrompt : undefined,
@@ -856,6 +862,7 @@ export async function loadState(): Promise<void> {
           shellAgentIds: [],
           notes: pt.notes,
           promptDraft: typeof pt.promptDraft === 'string' ? pt.promptDraft : undefined,
+          browserUrl: typeof pt.browserUrl === 'string' ? pt.browserUrl : undefined,
           lastPrompt: pt.lastPrompt,
           promptedAgentIds: restoredPromptedAgentIds(pt, []),
           initialPrompt: typeof pt.initialPrompt === 'string' ? pt.initialPrompt : undefined,

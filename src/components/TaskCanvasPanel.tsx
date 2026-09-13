@@ -3,6 +3,7 @@ import {
   setTaskFocusedPanel,
   isPanelFocused,
   openCanvasDocument,
+  openCanvasBrowser,
   activateCanvasTab,
   closeCanvasTab,
   closeTaskCanvas,
@@ -16,6 +17,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { CanvasFilePicker } from './CanvasFilePicker';
 import { CanvasTabStrip } from './CanvasTabStrip';
 import { TaskCanvasDocument } from './TaskCanvasDocument';
+import { TaskBrowserPanel } from './TaskBrowserPanel';
 
 interface TaskCanvasPanelProps {
   task: Task;
@@ -120,7 +122,10 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
           dirty={dirtyTabs()}
           onActivate={(key) => activateCanvasTab(props.task.id, key)}
           onClose={requestCloseTab}
-          onAdd={() => setPickerOpen(true)}
+          onAdd={(kind) => {
+            setPickerOpen(kind === 'markdown');
+            if (kind === 'browser') openCanvasBrowser(props.task.id);
+          }}
           onCloseAll={requestCloseAll}
         />
         <Show when={pickerOpen()}>
@@ -148,7 +153,7 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
             'font-size': sf(12),
           }}
         >
-          Open a Markdown file with +, or let the agent write one and it will appear here.
+          Use + to open a Browser or Markdown file.
         </div>
       </Show>
       {/* Keyed by tab key, not object, so a document survives the list being rewritten. */}
@@ -156,13 +161,24 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
         {(key) => (
           <Show when={tabFromKey(key)}>
             {(tab) => (
-              <TaskCanvasDocument
-                task={props.task}
-                agentId={props.agentId}
-                path={tab().path}
-                active={active() === key}
-                onDirty={(dirty) => setDirty(key, dirty)}
-              />
+              <Show
+                when={tab().kind === 'browser'}
+                fallback={
+                  <TaskCanvasDocument
+                    task={props.task}
+                    agentId={props.agentId}
+                    path={tab().path}
+                    active={active() === key}
+                    onDirty={(dirty) => setDirty(key, dirty)}
+                  />
+                }
+              >
+                <TaskBrowserPanel
+                  taskId={props.task.id}
+                  initialUrl={props.task.browserUrl}
+                  active={active() === key && !props.task.closingStatus}
+                />
+              </Show>
             )}
           </Show>
         )}

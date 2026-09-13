@@ -29,6 +29,7 @@ vi.mock('../store/store', () => ({
   unregisterFocusFn: vi.fn(),
   isPanelFocused: () => false,
   openCanvasDocument: vi.fn(),
+  openCanvasBrowser: vi.fn(),
   activateCanvasTab: vi.fn(),
   closeCanvasTab: vi.fn(),
   closeTaskCanvas: vi.fn(),
