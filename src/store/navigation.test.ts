@@ -14,6 +14,7 @@ type MockStore = {
   sidebarFocused: boolean;
   sidebarFocusedProjectId: string | null;
   sidebarFocusedTaskId: string | null;
+  newTaskPanelFocused: boolean;
 };
 
 let mockStore: MockStore;
@@ -32,7 +33,8 @@ vi.mock('./notification', () => ({ showNotification: vi.fn() }));
 vi.mock('./projects', () => ({ pickAndAddProject: vi.fn() }));
 vi.mock('./tasks', () => ({ reorderTask: vi.fn() }));
 
-import { jumpToTask } from './navigation';
+import { jumpToTask, moveActiveTask } from './navigation';
+import { reorderTask } from './tasks';
 
 beforeEach(() => {
   const harness = expectDefined(core.harness, 'mock store harness');
@@ -53,11 +55,23 @@ beforeEach(() => {
     sidebarFocused: false,
     sidebarFocusedProjectId: null,
     sidebarFocusedTaskId: null,
+    newTaskPanelFocused: false,
   });
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+describe('moveActiveTask', () => {
+  it('does not reorder the previous task while the new-task panel is focused', () => {
+    mockStore.activeTaskId = 'task-2';
+    mockStore.newTaskPanelFocused = true;
+
+    moveActiveTask('right');
+
+    expect(reorderTask).not.toHaveBeenCalled();
+  });
 });
 
 describe('jumpToTask', () => {

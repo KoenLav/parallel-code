@@ -15,6 +15,7 @@ type MockStore = {
   placeholderFocused: boolean;
   placeholderFocusedButton: 'add-task' | 'add-terminal';
   showNewTaskPanel: boolean;
+  newTaskPanelFocused: boolean;
   showHelpDialog: boolean;
   showSettingsDialog: boolean;
   showPromptInput: boolean;
@@ -75,9 +76,13 @@ vi.mock('./tasks', () => ({
 import {
   navigateColumn,
   navigateRow,
+  navigateTask,
+  isPanelFocused,
+  registerFocusFn,
   scrollTaskElementIntoView,
   setPendingAction,
   setTaskFocusedPanel,
+  unregisterFocusFn,
 } from './focus';
 import { showNotification } from './notification';
 
@@ -111,6 +116,7 @@ beforeEach(() => {
     placeholderFocused: false,
     placeholderFocusedButton: 'add-task',
     showNewTaskPanel: false,
+    newTaskPanelFocused: false,
     showHelpDialog: false,
     showSettingsDialog: false,
     showPromptInput: true,
@@ -128,10 +134,49 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  unregisterFocusFn('new-task');
   vi.unstubAllGlobals();
 });
 
 describe('focus navigation neighbor map', () => {
+  it('includes an open new-task panel after the last task', () => {
+    setTask('task-1');
+    mockStore.showNewTaskPanel = true;
+    const focusDraft = vi.fn();
+    registerFocusFn('new-task', focusDraft);
+
+    navigateColumn('right');
+
+    expect(focusDraft).toHaveBeenCalledOnce();
+    expect(mockStore.placeholderFocused).toBe(false);
+    expect(mockStore.newTaskPanelFocused).toBe(true);
+    expect(isPanelFocused('task-1', 'ai-terminal:agent-1')).toBe(false);
+  });
+
+  it('returns from the new-task panel to the last task', () => {
+    setTask('task-1');
+    setTask('task-2');
+    mockStore.taskOrder = ['task-1', 'task-2'];
+    mockStore.showNewTaskPanel = true;
+    mockStore.newTaskPanelFocused = true;
+
+    navigateTask('left');
+
+    expect(mockStore.activeTaskId).toBe('task-2');
+    expect(mockStore.focusedPanel['task-2']).toBe('ai-terminal:agent-1');
+  });
+
+  it('includes an open new-task panel in direct next-task navigation', () => {
+    setTask('task-1');
+    mockStore.showNewTaskPanel = true;
+    const focusDraft = vi.fn();
+    registerFocusFn('new-task', focusDraft);
+
+    navigateTask('right');
+
+    expect(focusDraft).toHaveBeenCalledOnce();
+  });
+
   describe.each([false, true])('canvas navigation (split: %s)', (split) => {
     beforeEach(() => {
       setTask('task-1', { canvasOpen: true });

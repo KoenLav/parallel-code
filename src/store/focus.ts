@@ -188,6 +188,7 @@ function findInGrid(grid: string[][], cell: string): GridPos | null {
 export function focusSidebar(): void {
   setStore('sidebarFocused', true);
   setStore('placeholderFocused', false);
+  setStore('newTaskPanelFocused', false);
   setStore('sidebarFocusedTaskId', store.activeTaskId);
   setStore('sidebarFocusedProjectId', null);
   triggerFocus('sidebar');
@@ -202,6 +203,7 @@ export function unfocusSidebar(): void {
 export function focusPlaceholder(button?: 'add-task' | 'add-terminal'): void {
   setStore('placeholderFocused', true);
   setStore('sidebarFocused', false);
+  setStore('newTaskPanelFocused', false);
   if (button) setStore('placeholderFocusedButton', button);
   const target = button ?? store.placeholderFocusedButton;
   triggerFocus(`placeholder:${target}`);
@@ -214,6 +216,13 @@ export function unfocusPlaceholder(): void {
 function focusTaskPanel(taskId: string, panel: string): void {
   setActiveTask(taskId);
   setTaskFocusedPanel(taskId, panel);
+}
+
+function focusNewTaskPanel(): void {
+  unfocusSidebar();
+  unfocusPlaceholder();
+  setStore('newTaskPanelFocused', true);
+  triggerFocus('new-task');
 }
 
 function navigateAiTerminalColumn(
@@ -359,9 +368,28 @@ export function navigateColumn(direction: 'left' | 'right'): void {
 
   const taskId = store.activeTaskId;
 
+  // The open draft is a real tile between the last task and the add controls.
+  if (store.showNewTaskPanel && store.newTaskPanelFocused) {
+    if (direction === 'right') {
+      if (openPanelOrder().length > 0) focusPlaceholder('add-task');
+    } else {
+      const lastTaskId = openPanelOrder().at(-1);
+      if (lastTaskId) {
+        focusTaskPanel(lastTaskId, getTaskFocusedPanel(lastTaskId));
+      } else if (store.sidebarVisible) {
+        focusSidebar();
+      }
+    }
+    return;
+  }
+
   // From placeholder
   if (store.placeholderFocused) {
     if (direction === 'left') {
+      if (store.showNewTaskPanel) {
+        focusNewTaskPanel();
+        return;
+      }
       unfocusPlaceholder();
       const lastTaskId = openPanelOrder().at(-1);
       if (lastTaskId) {
@@ -388,6 +416,8 @@ export function navigateColumn(direction: 'left' | 'right'): void {
         if (targetTaskId !== store.activeTaskId) setActiveTask(targetTaskId);
         unfocusSidebar();
         setTaskFocusedPanel(targetTaskId, getTaskFocusedPanel(targetTaskId));
+      } else if (store.showNewTaskPanel) {
+        focusNewTaskPanel();
       }
     }
     return;
@@ -457,6 +487,8 @@ export function navigateColumn(direction: 'left' | 'right'): void {
     const nextTaskId = taskOrder[taskIdx + 1];
     if (nextTaskId) {
       focusAdjacentTask(nextTaskId, 'right');
+    } else if (store.showNewTaskPanel) {
+      focusNewTaskPanel();
     } else {
       focusPlaceholder('add-task');
     }
@@ -474,13 +506,26 @@ export function navigateTask(direction: 'left' | 'right'): void {
 
   const { activeTaskId } = store;
   const taskOrder = openPanelOrder();
+
+  if (store.showNewTaskPanel && store.newTaskPanelFocused) {
+    if (direction === 'left') {
+      const lastTaskId = taskOrder.at(-1);
+      if (lastTaskId) focusTaskPanel(lastTaskId, getTaskFocusedPanel(lastTaskId));
+    }
+    return;
+  }
+
   if (!activeTaskId) return;
 
   const currentIdx = taskOrder.indexOf(activeTaskId);
   if (currentIdx === -1) return;
 
   const targetIdx = direction === 'left' ? currentIdx - 1 : currentIdx + 1;
-  if (targetIdx < 0 || targetIdx >= taskOrder.length) return;
+  if (targetIdx < 0) return;
+  if (targetIdx >= taskOrder.length) {
+    if (direction === 'right' && store.showNewTaskPanel) focusNewTaskPanel();
+    return;
+  }
 
   const targetId = taskOrder[targetIdx];
   if (!store.tasks[targetId]) {

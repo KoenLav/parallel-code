@@ -51,6 +51,7 @@ beforeEach(() => {
     activeTaskId: null,
     activeDocumentProjectId: null,
     showNewTaskPanel: false,
+    newTaskPanelFocused: false,
     focusMode: false,
     newTaskDropUrl: null,
     newTaskPrefillPrompt: null,
@@ -232,6 +233,7 @@ describe('inline task creation', () => {
     expect(prompt.closest('[data-tiling-strip]')).not.toBeNull();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(prompt);
+    expect(store.newTaskPanelFocused).toBe(true);
     expect(container.textContent).not.toContain('No tasks yet');
   });
 
@@ -392,6 +394,7 @@ describe('inline task creation', () => {
     const outside = document.createElement('button');
     document.body.append(outside);
     outside.focus();
+    expect(store.newTaskPanelFocused).toBe(false);
     resolveAgents(agents);
     await vi.waitFor(() =>
       expect(container.querySelector('[role="radio"][aria-checked="true"]')).not.toBeNull(),

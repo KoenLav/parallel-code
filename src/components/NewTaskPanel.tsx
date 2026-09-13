@@ -13,6 +13,7 @@ import type { JSX } from 'solid-js';
 import { createFocusRestore } from '../lib/focus-restore';
 import { topDialog } from '../lib/dialog-stack';
 import { registerFocusFn, unregisterFocusFn } from '../store/focused-panel';
+import { setStore } from '../store/core';
 import { FolderIcon, GitBranchIcon } from './icons';
 import { ConfirmDialog } from './ConfirmDialog';
 import { errMessage } from '../lib/log';
@@ -591,7 +592,15 @@ export function NewTaskPanel(props: NewTaskPanelProps) {
 
           // Capture-phase handler for Alt+Arrow to navigate form sections / within fields
           const handleAltArrow = (e: KeyboardEvent) => {
-            if (!e.altKey || !panelRef?.contains(e.target as Node) || topDialog()) return;
+            if (
+              !e.altKey ||
+              e.ctrlKey ||
+              e.metaKey ||
+              e.shiftKey ||
+              !panelRef?.contains(e.target as Node) ||
+              topDialog()
+            )
+              return;
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
               e.preventDefault();
               e.stopImmediatePropagation();
@@ -1073,6 +1082,12 @@ export function NewTaskPanel(props: NewTaskPanelProps) {
       aria-labelledby={titleId}
       data-new-task-panel
       class="new-task-appearing"
+      onFocusIn={() => setStore('newTaskPanelFocused', true)}
+      onFocusOut={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setStore('newTaskPanelFocused', false);
+        }
+      }}
       style={{
         height: '100%',
         display: 'flex',

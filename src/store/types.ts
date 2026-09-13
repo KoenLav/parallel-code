@@ -431,6 +431,7 @@ export interface AppStore {
    *  at spawn. Only the path is stored here; secrets stay in the file on disk. */
   agentEnvFiles: Record<string, string>;
   showNewTaskPanel: boolean;
+  newTaskPanelFocused: boolean;
   sidebarVisible: boolean;
   /** User-dragged sizes keyed by `${persistKey}:${childId}`. Presence of an
    *  entry means that panel is pinned; absence means it's content-sized or

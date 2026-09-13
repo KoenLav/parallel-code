@@ -31,6 +31,7 @@ export function createTerminal(): void {
   setStore('activeTaskId', id);
   setStore('activeAgentId', null);
   setStore('sidebarFocused', false);
+  setStore('newTaskPanelFocused', false);
 
   requestAnimationFrame(() => {
     document

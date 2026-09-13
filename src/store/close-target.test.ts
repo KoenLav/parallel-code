@@ -5,6 +5,7 @@ const EMPTY = {
   activeTaskId: null,
   sidebarFocused: false,
   placeholderFocused: false,
+  newTaskPanelFocused: false,
   terminals: {},
   tasks: {},
   focusedPanel: {},
@@ -31,6 +32,10 @@ describe('resolveShellCloseTarget', () => {
 
   it('spares the active terminal while the placeholder has focus', () => {
     expect(resolveShellCloseTarget({ ...ACTIVE_TERMINAL, placeholderFocused: true })).toBeNull();
+  });
+
+  it('spares the active terminal while the new-task panel has focus', () => {
+    expect(resolveShellCloseTarget({ ...ACTIVE_TERMINAL, newTaskPanelFocused: true })).toBeNull();
   });
 
   it('spares a focused task shell while the sidebar has focus', () => {

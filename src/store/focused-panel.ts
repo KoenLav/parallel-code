@@ -84,13 +84,13 @@ export function getTaskFocusedPanel(taskId: string): string {
  * focused panel is still recorded in `focusedPanel[taskId]`.
  */
 export function isPanelFocused(taskId: string, panel: string): boolean {
-  if (store.sidebarFocused || store.placeholderFocused) return false;
+  if (store.sidebarFocused || store.placeholderFocused || store.newTaskPanelFocused) return false;
   if (store.activeTaskId !== taskId) return false;
   return store.focusedPanel[taskId] === panel;
 }
 
 export function isPanelFocusedPrefix(taskId: string, prefix: string): boolean {
-  if (store.sidebarFocused || store.placeholderFocused) return false;
+  if (store.sidebarFocused || store.placeholderFocused || store.newTaskPanelFocused) return false;
   if (store.activeTaskId !== taskId) return false;
   return store.focusedPanel[taskId]?.startsWith(prefix) ?? false;
 }
@@ -105,6 +105,7 @@ export function setTaskFocusedPanel(taskId: string, panel: string): void {
   }
   setStore('sidebarFocused', false);
   setStore('placeholderFocused', false);
+  setStore('newTaskPanelFocused', false);
   triggerFocus(`${taskId}:${normalizedPanel}`);
   scrollTaskIntoView(taskId);
 }

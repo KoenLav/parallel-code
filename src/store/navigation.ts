@@ -36,6 +36,7 @@ export function setActiveTask(id: string): void {
   const isDocument =
     store.activeDocumentProjectId && id === documentAgentTaskId(store.activeDocumentProjectId);
   if (!task && !terminal && !isDocument) return;
+  setStore('newTaskPanelFocused', false);
   let activeAgentId: string | null = null;
   if (task) {
     activeAgentId =
@@ -60,6 +61,7 @@ export function setActiveAgent(agentId: string): void {
 }
 
 export function moveActiveTask(direction: 'left' | 'right'): void {
+  if (store.newTaskPanelFocused) return;
   const { taskOrder, activeTaskId } = store;
   if (!activeTaskId || taskOrder.length < 2) return;
   const idx = taskOrder.indexOf(activeTaskId);
@@ -94,6 +96,7 @@ export function toggleNewTaskPanel(show?: boolean): void {
     setStore('sidebarFocused', false);
     setStore('placeholderFocused', false);
   } else {
+    setStore('newTaskPanelFocused', false);
     setStore('newTaskDropUrl', null);
     setStore('newTaskPrefillPrompt', null);
   }
