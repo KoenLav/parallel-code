@@ -41,6 +41,7 @@ describe('main stylesheet reduced-motion styles', () => {
       block,
       [
         '.task-appearing',
+        '.new-task-appearing',
         '.task-item-appearing',
         '.task-removing',
         '.task-item-removing',
