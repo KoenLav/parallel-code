@@ -13,6 +13,7 @@ import { setPlanContent } from './tasks';
 import { setActiveTask } from './navigation';
 import { saveState } from './persistence';
 import { getPanelUserSize, setPanelUserSize } from './ui';
+import { aiTerminalPanels, setTaskFocusedPanel } from './focused-panel';
 import type { CanvasTab, Task } from './types';
 
 type CanvasState = Pick<Task, 'canvasOpen' | 'canvasTabs' | 'canvasActiveTab'>;
@@ -85,12 +86,19 @@ export function openTaskCanvas(taskId: string): void {
 
 /** Hides the column and forgets every tab. */
 export function closeTaskCanvas(taskId: string): void {
-  if (!store.tasks[taskId]) return;
+  const task = store.tasks[taskId];
+  if (!task) return;
+  const restoreAgentFocus =
+    store.activeTaskId === taskId &&
+    store.focusedPanel[taskId] === 'canvas' &&
+    !store.sidebarFocused &&
+    !store.placeholderFocused;
   updateCanvas(taskId, {
     canvasTabs: undefined,
     canvasActiveTab: undefined,
     canvasOpen: undefined,
   });
+  if (restoreAgentFocus) setTaskFocusedPanel(taskId, aiTerminalPanels(task)[0]);
   void saveState();
 }
 

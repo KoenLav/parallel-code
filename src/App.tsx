@@ -17,7 +17,7 @@ import { IPC } from '../electron/ipc/channels';
 import { appWindow } from './lib/window';
 import { choice } from './lib/dialog';
 import { CLOSE_DIALOG_BUTTONS, resolveCloseChoice } from './lib/close-decision';
-import { resolveShellCloseTarget } from './store/close-target';
+import { resolvePanelCloseTarget } from './store/close-target';
 import { Sidebar } from './components/Sidebar';
 import { TilingLayout } from './components/TilingLayout';
 import { HelpDialog } from './components/HelpDialog';
@@ -67,6 +67,7 @@ import {
   applyTaskMcpLaunchResult,
   markTaskMcpError,
   getProject,
+  triggerAction,
 } from './store/store';
 import { isGitHubUrl } from './lib/github-url';
 import { HoldToQuit } from './components/HoldToQuit';
@@ -667,13 +668,13 @@ function App() {
         Array.from({ length: 9 }, (_, i) => [`jumpToTask:${i + 1}`, () => jumpToTask(i)]),
       ),
       closeShell: (e) => {
-        // Auto-repeat would walk the strip killing one pane per repeat:
-        // closeTerminal hands activeTaskId to the neighbor immediately.
+        // Auto-repeat would walk through adjacent terminals or canvas tabs.
         if (e.repeat) return;
-        const target = resolveShellCloseTarget(store);
+        const target = resolvePanelCloseTarget(store);
         if (!target) return;
         if (target.kind === 'terminal') closeTerminal(target.terminalId);
-        else closeShell(target.taskId, target.shellId);
+        else if (target.kind === 'shell') closeShell(target.taskId, target.shellId);
+        else triggerAction(`${target.taskId}:close-canvas-active-tab`);
       },
       closeTask: () => {
         const id = store.activeTaskId;

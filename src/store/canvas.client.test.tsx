@@ -254,6 +254,10 @@ describe('canvas tabs', () => {
   });
 
   it('closing the last tab closes the column', () => {
+    const focusAgent = vi.fn();
+    setStore('activeTaskId', 'task-1');
+    setStore('focusedPanel', 'task-1', 'canvas');
+    registerFocusFn('task-1:ai-terminal:agent-1', focusAgent);
     openCanvasDocument('task-1', 'docs/a.md');
     openCanvasDocument('task-1', 'docs/b.md');
     closeCanvasTab('task-1', 'markdown:docs/b.md');
@@ -264,6 +268,9 @@ describe('canvas tabs', () => {
     closeCanvasTab('task-1', 'markdown:docs/a.md');
     expect(store.tasks['task-1'].canvasTabs).toBeUndefined();
     expect(store.tasks['task-1'].canvasOpen).toBeUndefined();
+    expect(store.focusedPanel['task-1']).toBe('ai-terminal:agent-1');
+    expect(focusAgent).toHaveBeenCalledOnce();
+    unregisterFocusFn('task-1:ai-terminal:agent-1');
   });
 });
 

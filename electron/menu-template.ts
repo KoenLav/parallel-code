@@ -10,7 +10,7 @@ export interface MenuTemplateOptions {
 // menu key equivalents *before* the web contents sees the keydown — so on macOS
 // every accelerator that menu registers is a shortcut the renderer can never
 // receive. Three default roles claim keys this app binds itself: `fileMenu`
-// takes Cmd+W (close the focused shell/terminal), `viewMenu` takes Cmd+0 / Cmd+±
+// takes Cmd+W (close the focused panel/file), `viewMenu` takes Cmd+0 / Cmd+±
 // (the app scales its whole UI through globalScale instead of Chromium's zoom),
 // and `appMenu` takes Cmd+Q (the renderer turns it into a hold, see below).
 // Spelling those submenus out on macOS keeps their items reachable by mouse

@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onMount } from 'solid-js';
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import {
   setTaskFocusedPanel,
@@ -9,6 +9,8 @@ import {
   closeCanvasTab,
   closeTaskCanvas,
   showNotification,
+  registerAction,
+  unregisterAction,
 } from '../store/store';
 import { theme } from '../lib/theme';
 import { sf } from '../lib/fontScale';
@@ -78,6 +80,18 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
     if (Object.values(dirtyTabs()).some(Boolean)) setConfirmClose(null);
     else closeTaskCanvas(props.task.id);
   }
+
+  function requestCloseActiveTab(): void {
+    const key = active();
+    if (key) requestCloseTab(key);
+    else requestCloseAll();
+  }
+
+  onMount(() => {
+    const actionKey = `${props.task.id}:close-canvas-active-tab`;
+    registerAction(actionKey, requestCloseActiveTab);
+    onCleanup(() => unregisterAction(actionKey));
+  });
 
   function confirmedClose(): void {
     const target = confirmClose();
@@ -236,6 +250,7 @@ export function TaskCanvasPanel(props: TaskCanvasPanelProps) {
                   taskId={props.task.id}
                   initialUrl={props.task.browserUrl}
                   active={active() === key && !props.task.closingStatus}
+                  onClose={() => requestCloseTab(key)}
                 />
               </Show>
             )}

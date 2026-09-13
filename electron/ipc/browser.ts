@@ -3,6 +3,7 @@ import {
   WebContentsView,
   session,
   type BrowserWindow,
+  type Input,
   type IpcMainInvokeEvent,
 } from 'electron';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,21 @@ import {
   formatElementReference,
   type BrowserState,
 } from '../shared/browser.js';
+
+export function isBrowserCloseShortcut(
+  input: Pick<Input, 'type' | 'key' | 'control' | 'meta' | 'alt' | 'shift'>,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const primary =
+    platform === 'darwin' ? input.meta && !input.control : input.control && !input.meta;
+  return (
+    input.type === 'keyDown' &&
+    input.key.toLowerCase() === 'w' &&
+    primary &&
+    !input.alt &&
+    !input.shift
+  );
+}
 
 /** Native views need explicit bounds and disposal; they are not DOM children.
  * https://www.electronjs.org/docs/latest/tutorial/web-embeds#webcontentsview */
@@ -85,7 +101,9 @@ export function registerBrowserHandlers(win: BrowserWindow): void {
       previews.set(args.id, entry);
       view.setVisible(false);
       win.contentView.addChildView(view);
-      const publish = (event: Pick<BrowserState, 'reference' | 'focused'> = {}): void => {
+      const publish = (
+        event: Pick<BrowserState, 'reference' | 'focused' | 'closeRequested'> = {},
+      ): void => {
         if (previews.get(args.id) !== entry || owner.isDestroyed() || wc.isDestroyed()) return;
         state.loading = wc.isLoading();
         state.canGoBack = wc.navigationHistory.canGoBack();
@@ -93,6 +111,11 @@ export function registerBrowserHandlers(win: BrowserWindow): void {
         owner.send(IPC.BrowserState, { ...state, ...event });
       };
       wc.on('focus', () => publish({ focused: true }));
+      wc.on('before-input-event', (event, input) => {
+        if (!entry.visible || !isBrowserCloseShortcut(input)) return;
+        event.preventDefault();
+        if (!input.isAutoRepeat) publish({ closeRequested: true });
+      });
       wc.setWindowOpenHandler(() => ({ action: 'deny' }));
       wc.on('will-navigate', (e, url) => {
         try {

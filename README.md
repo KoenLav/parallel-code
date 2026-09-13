@@ -157,7 +157,7 @@ Requires [Node.js](https://nodejs.org/) v18+.
 | `Ctrl+Enter`           | Send prompt                        |
 | `Ctrl+Shift+M`         | Merge task to main                 |
 | `Ctrl+Shift+P`         | Push to remote                     |
-| `Ctrl+W`               | Close focused terminal session     |
+| `Ctrl+W`               | Close focused panel or file        |
 | `Ctrl+Shift+W`         | Close active task                  |
 | **Navigation**         |                                    |
 | `Alt+Arrows`           | Focus pane/task in arrow direction |

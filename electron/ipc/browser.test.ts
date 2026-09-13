@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
   WebContentsView: mocks.view,
   session: { fromPartition: mocks.partition },
 }));
-import { registerBrowserHandlers } from './browser.js';
+import { isBrowserCloseShortcut, registerBrowserHandlers } from './browser.js';
 
 function fixture() {
   const frame = {};
@@ -78,6 +78,21 @@ beforeEach(() => {
 });
 
 describe('task browser IPC', () => {
+  it('recognizes the platform close chord without accepting extra modifiers', () => {
+    const input = {
+      type: 'keyDown',
+      key: 'w',
+      control: true,
+      meta: false,
+      alt: false,
+      shift: false,
+    };
+    expect(isBrowserCloseShortcut(input, 'linux')).toBe(true);
+    expect(isBrowserCloseShortcut({ ...input, control: false, meta: true }, 'darwin')).toBe(true);
+    expect(isBrowserCloseShortcut({ ...input, shift: true }, 'linux')).toBe(false);
+    expect(isBrowserCloseShortcut({ ...input, meta: true }, 'linux')).toBe(false);
+  });
+
   it('refuses commands from guests and subframes', () => {
     const { command } = fixture();
     expect(() =>
@@ -130,6 +145,35 @@ describe('task browser IPC', () => {
     expect(owner.focus).not.toHaveBeenCalled();
     wc.emit('did-stop-loading');
     expect(owner.send.mock.lastCall?.[1].focused).toBeUndefined();
+  });
+
+  it('forwards a close shortcut from a visible guest and suppresses repeats', () => {
+    const { command, owner, bounds } = fixture();
+    command({ id: 'preview-1', action: 'create' });
+    bounds({ x: 10, y: 20, width: 400, height: 300 });
+    const wc = (mocks.view.mock.results[0].value as ReturnType<typeof guest>).webContents;
+    const shortcut = {
+      type: 'keyDown',
+      key: 'w',
+      control: process.platform !== 'darwin',
+      meta: process.platform === 'darwin',
+      alt: false,
+      shift: false,
+      isAutoRepeat: false,
+    };
+    const event = { preventDefault: vi.fn() };
+
+    wc.emit('before-input-event', event, shortcut);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(owner.send).toHaveBeenLastCalledWith(
+      IPC.BrowserState,
+      expect.objectContaining({ id: 'preview-1', closeRequested: true }),
+    );
+
+    owner.send.mockClear();
+    wc.emit('before-input-event', event, { ...shortcut, isAutoRepeat: true });
+    expect(event.preventDefault).toHaveBeenCalledTimes(2);
+    expect(owner.send).not.toHaveBeenCalled();
   });
 
   it('only forwards a picker result from the armed guest main frame', () => {

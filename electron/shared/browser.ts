@@ -21,6 +21,8 @@ export interface BrowserState {
   reference?: string;
   /** Transient event: the native guest acquired keyboard focus. */
   focused?: boolean;
+  /** Transient event: Cmd/Ctrl+W was pressed inside the native guest. */
+  closeRequested?: boolean;
 }
 export type BrowserAction =
   | 'create'

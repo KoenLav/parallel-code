@@ -18,6 +18,7 @@ interface TaskBrowserPanelProps {
   taskId: string;
   initialUrl?: string;
   active: boolean;
+  onClose: () => void;
 }
 
 /** A DOM placeholder positions the native view. Hide it during app overlays and
@@ -87,9 +88,14 @@ export function TaskBrowserPanel(props: TaskBrowserPanelProps) {
   onMount(() => {
     const taskId = props.taskId;
     const initialUrl = props.initialUrl;
+    const onClose = props.onClose;
     const unsubscribe = window.electron.ipcRenderer.on(IPC.BrowserState, (value: unknown) => {
       const next = value as BrowserState;
       if (disposed || next.id !== id) return;
+      if (next.closeRequested) {
+        onClose();
+        return;
+      }
       // Do not overwrite an address the user is currently editing on a loading/picker update.
       if (next.url && next.url !== untrack(() => state.url)) {
         setAddress(next.url);

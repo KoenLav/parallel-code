@@ -13,8 +13,10 @@ import {
   activateCanvasTab,
   closeCanvasTab,
   closeTaskCanvas,
+  registerAction,
   registerFocusFn,
   setTaskFocusedPanel,
+  unregisterAction,
   unregisterFocusFn,
 } from '../store/store';
 import type { Task } from '../store/types';
@@ -36,6 +38,8 @@ vi.mock('../store/store', () => ({
   setTaskFocusedPanel: vi.fn(),
   registerFocusFn: vi.fn(),
   unregisterFocusFn: vi.fn(),
+  registerAction: vi.fn(),
+  unregisterAction: vi.fn(),
   isPanelFocused: () => false,
   showNotification: vi.fn(),
   openCanvasDocument: vi.fn(),
@@ -51,6 +55,8 @@ let changedListeners: Array<(payload: unknown) => void> = [];
 beforeEach(() => {
   vi.mocked(registerFocusFn).mockClear();
   vi.mocked(unregisterFocusFn).mockClear();
+  vi.mocked(registerAction).mockClear();
+  vi.mocked(unregisterAction).mockClear();
   vi.mocked(setTaskFocusedPanel).mockImplementation((taskId, panel) => {
     vi.mocked(registerFocusFn).mock.calls.find(([key]) => key === `${taskId}:${panel}`)?.[1]();
   });
@@ -139,6 +145,14 @@ function mount(canvasPath?: string) {
   document.body.append(container);
   disposers.push(render(() => <TaskCanvasPanel task={task} agentId="agent-1" />, container));
   return { container, setTask };
+}
+
+function closeActiveCanvasTab(): void {
+  const close = vi
+    .mocked(registerAction)
+    .mock.calls.find(([key]) => key === 'task-1:close-canvas-active-tab')?.[1];
+  if (!close) throw new Error('Canvas close action was not registered');
+  close();
 }
 
 async function waitFor<T>(probe: () => T | null | undefined | false): Promise<T> {
@@ -711,6 +725,36 @@ describe('TaskCanvasPanel', () => {
     expect(closeCanvasTab).toHaveBeenCalledWith('task-1', 'markdown:docs/design.md');
     container.querySelector<HTMLButtonElement>('[title="Close the canvas"]')?.click();
     expect(closeTaskCanvas).toHaveBeenCalledWith('task-1');
+  });
+
+  it('closes the active tab through the canvas action used by Cmd/Ctrl+W', async () => {
+    mockIpc();
+    const { container, setTask } = mount('docs/design.md');
+    await editorLine(container, 'Keep state in one store.');
+
+    closeActiveCanvasTab();
+
+    expect(closeCanvasTab).toHaveBeenCalledWith('task-1', 'markdown:docs/design.md');
+
+    setTask({ canvasTabs: undefined, canvasActiveTab: undefined });
+    closeActiveCanvasTab();
+    expect(closeTaskCanvas).toHaveBeenCalledWith('task-1');
+
+    disposers.pop()?.();
+    expect(unregisterAction).toHaveBeenCalledWith('task-1:close-canvas-active-tab');
+  });
+
+  it('asks before the canvas action closes an active tab with unsaved edits', async () => {
+    mockIpc();
+    const { container } = mount('docs/design.md');
+    const paragraph = await editorLine(container, 'Keep state in one store.');
+    typeInto(paragraph, 'Keep all state in one ');
+    await waitFor(() => saveButton(container));
+
+    closeActiveCanvasTab();
+
+    expect(closeCanvasTab).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('This tab has unsaved edits');
   });
 
   it('keeps every tab mounted, shows the active one, and marks unsaved edits on its tab', async () => {

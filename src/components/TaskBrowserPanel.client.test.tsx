@@ -23,7 +23,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function mount() {
+function mount(onClose = vi.fn()) {
   const listeners = new Map<string, (value: unknown) => void>();
   Object.assign(window, {
     electron: {
@@ -37,8 +37,10 @@ function mount() {
   });
   const container = document.createElement('div');
   document.body.append(container);
-  disposers.push(render(() => <TaskBrowserPanel taskId="task-1" active={true} />, container));
-  return { container, listeners };
+  disposers.push(
+    render(() => <TaskBrowserPanel taskId="task-1" active={true} onClose={onClose} />, container),
+  );
+  return { container, listeners, onClose };
 }
 
 it('opens a URL and routes only this preview’s picked reference to its task', async () => {
@@ -101,6 +103,17 @@ it('routes native focus only to its task without stealing keyboard focus', async
   listeners.get(IPC.BrowserState)?.({ id, focused: true });
   expect(markBrowserFocused).toHaveBeenCalledWith('task-1');
   expect(setTaskFocusedPanel).not.toHaveBeenCalled();
+});
+
+it('closes only this preview when its native guest requests it', async () => {
+  const { listeners, onClose } = mount();
+  await Promise.resolve();
+  const id = vi.mocked(invoke).mock.calls.find(([, args]) => args?.action === 'create')?.[1]?.id;
+
+  listeners.get(IPC.BrowserState)?.({ id: 'other', closeRequested: true });
+  expect(onClose).not.toHaveBeenCalled();
+  listeners.get(IPC.BrowserState)?.({ id, closeRequested: true });
+  expect(onClose).toHaveBeenCalledOnce();
 });
 
 it('hides the native view throughout task, terminal, and sidebar drags', async () => {
