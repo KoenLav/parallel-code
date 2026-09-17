@@ -23,13 +23,15 @@ import { warn as logWarn } from '../lib/log';
 import { cleanTaskName } from '../lib/clean-task-name';
 import type {
   AgentDef,
+  CreatePoolTaskResult,
   CreateTaskResult,
+  ReleasePoolEnvResult,
   ImportableWorktree,
   MergeResult,
   StepEntry,
 } from '../ipc/types';
 import { parseGitHubUrl, taskNameFromGitHubUrl } from '../lib/github-url';
-import type { Agent, Task, GitIsolationMode, AppStore } from './types';
+import type { Agent, Task, TaskRepo, GitIsolationMode, AppStore } from './types';
 import type { DockerSource } from '../lib/docker';
 import { COORDINATOR_PREAMBLE } from './coordinator-preamble';
 import {
@@ -72,6 +74,8 @@ function createBaseTaskRecord(args: {
   worktreePath: string;
   agentId: string;
   baseBranch?: string;
+  envPath?: string;
+  repos?: TaskRepo[];
 }): Task {
   return {
     id: args.id,
@@ -80,6 +84,8 @@ function createBaseTaskRecord(args: {
     projectId: args.projectId,
     gitIsolation: args.gitIsolation,
     baseBranch: args.baseBranch,
+    envPath: args.envPath,
+    repos: args.repos,
     branchName: args.branchName,
     worktreePath: args.worktreePath,
     agentIds: [args.agentId],
@@ -258,6 +264,8 @@ export async function createTask(opts: CreateTaskOptions): Promise<string> {
   let taskId: string;
   let branchName: string;
   let worktreePath: string;
+  let envPath: string | undefined;
+  let repos: TaskRepo[] | undefined;
 
   if (gitIsolation === 'worktree') {
     const branchPrefix = opts.branchPrefixOverride ?? getProjectBranchPrefix(projectId);
@@ -271,6 +279,28 @@ export async function createTask(opts: CreateTaskOptions): Promise<string> {
     taskId = result.id;
     branchName = result.branch_name;
     worktreePath = result.worktree_path;
+  } else if (gitIsolation === 'pool') {
+    const pool = getProject(projectId)?.pool;
+    if (!pool || pool.envPaths.length === 0) {
+      throw new Error('This project has no pool environments configured');
+    }
+    const result = await invoke<CreatePoolTaskResult>(IPC.PoolAcquireEnv, {
+      name,
+      branchPrefix: opts.branchPrefixOverride ?? getProjectBranchPrefix(projectId),
+      envPaths: pool.envPaths,
+      members: pool.members,
+      // Leases held by tasks the app no longer has are reclaimable; only the
+      // live ones may keep an environment out of the pool.
+      liveTaskIds: [...store.taskOrder, ...store.collapsedTaskOrder],
+    });
+    taskId = result.id;
+    branchName = result.branch_name;
+    envPath = result.env_path;
+    repos = result.repos;
+    // A pool task's working directory is the leased environment itself, so
+    // every path-keyed feature — shells, canvas, preview, verify — is pointed
+    // at it exactly as a worktree task points at its worktree.
+    worktreePath = result.env_path;
   } else if (gitIsolation === 'direct') {
     if (hasDirectTask(projectId)) {
       throw new Error('This project already has a task on the current branch');
@@ -366,6 +396,8 @@ export async function createTask(opts: CreateTaskOptions): Promise<string> {
       branchName,
       worktreePath,
       agentId,
+      envPath,
+      repos,
     }),
     initialPrompt:
       opts.coordinatorMode && effectivePrompt
@@ -524,6 +556,23 @@ export async function closeTask(taskId: string): Promise<void> {
         // later adopted the branch the agent switched to — pass the real path.
         worktreePath: task.worktreePath,
       });
+    }
+
+    // A pool task owns no worktree to remove: it gives its environment back,
+    // which restores every member repo to its base branch and drops the lease.
+    // `deleteBranchOnClose` is what forces a branch that still holds commits;
+    // without it the branch is kept and only the checkout is restored.
+    if (task.gitIsolation === 'pool' && task.envPath && task.repos) {
+      const release = await invoke<ReleasePoolEnvResult>(IPC.PoolReleaseEnv, {
+        taskId,
+        agentIds: [...agentIds, ...shellAgentIds],
+        envPath: task.envPath,
+        repos: task.repos,
+        force: deleteBranch,
+      });
+      for (const failure of release.failures) {
+        console.warn(`Could not restore ${failure.repo} on close:`, failure.reason);
+      }
     }
 
     // Agents are dead — deregister the coordinator so no more MCP tool calls succeed.

@@ -76,7 +76,8 @@ import {
   getUncommittedChangedFiles,
   getUncommittedFileDiffs,
 } from './git.js';
-import { createTask, deleteTask } from './tasks.js';
+import { createPoolTask, createTask, deletePoolTask, deleteTask } from './tasks.js';
+import { envStatus, type PoolRepo } from './pool.js';
 import { listAgents } from './agents.js';
 import {
   saveAppState,
@@ -567,6 +568,86 @@ export function registerAllHandlers(win: BrowserWindow): void {
       });
     return result;
   });
+  /**
+   * Pool arguments name directories and branches the main process then runs
+   * git in, so every one is validated here rather than trusted from the
+   * renderer — the same rule the worktree handlers follow.
+   */
+  function validatedPoolRepos(value: unknown): PoolRepo[] {
+    if (!Array.isArray(value)) throw new Error('repos must be an array');
+    return value.map((entry, index) => {
+      if (!entry || typeof entry !== 'object') throw new Error(`repos[${index}] must be an object`);
+      const repo = entry as Record<string, unknown>;
+      assertString(repo.name, `repos[${index}].name`);
+      validatePath(repo.path, `repos[${index}].path`);
+      validateBranchName(repo.branchName, `repos[${index}].branchName`);
+      validateBranchName(repo.baseBranch, `repos[${index}].baseBranch`);
+      return {
+        name: repo.name,
+        path: repo.path as string,
+        branchName: repo.branchName as string,
+        baseBranch: repo.baseBranch as string,
+      };
+    });
+  }
+
+  function validatedEnvPaths(value: unknown): string[] {
+    assertStringArray(value, 'envPaths');
+    for (const envPath of value) validatePath(envPath, 'envPaths[]');
+    return value;
+  }
+
+  function optionalMembers(value: unknown): string[] | undefined {
+    if (value === undefined) return undefined;
+    assertStringArray(value, 'members');
+    return value;
+  }
+
+  function validatedTaskIds(value: unknown): string[] {
+    assertStringArray(value, 'liveTaskIds');
+    return value;
+  }
+
+  ipcMain.handle(IPC.PoolEnvStatus, (_e, args) => {
+    const envPaths = validatedEnvPaths(args.envPaths);
+    const members = optionalMembers(args.members);
+    const liveTaskIds = new Set(validatedTaskIds(args.liveTaskIds));
+    return Promise.all(envPaths.map((envPath) => envStatus(envPath, members, liveTaskIds)));
+  });
+
+  ipcMain.handle(IPC.PoolAcquireEnv, (_e, args) => {
+    const envPaths = validatedEnvPaths(args.envPaths);
+    assertString(args.name, 'name');
+    assertOptionalString(args.branchPrefix, 'branchPrefix');
+    const result = createPoolTask({
+      name: args.name,
+      branchPrefix: args.branchPrefix ?? 'task',
+      envPaths,
+      members: optionalMembers(args.members),
+      liveTaskIds: validatedTaskIds(args.liveTaskIds),
+    });
+    result
+      .then((r: { id: string }) => taskNames.set(r.id, args.name))
+      .catch((err: unknown) => {
+        logWarn('tasks', 'createPoolTask resolution failed', { err: errMessage(err) });
+      });
+    return result;
+  });
+
+  ipcMain.handle(IPC.PoolReleaseEnv, (_e, args) => {
+    validatePath(args.envPath, 'envPath');
+    assertStringArray(args.agentIds, 'agentIds');
+    assertOptionalString(args.taskId, 'taskId');
+    assertOptionalBoolean(args.force, 'force');
+    return deletePoolTask({
+      taskId: args.taskId,
+      agentIds: args.agentIds,
+      envPath: args.envPath,
+      repos: validatedPoolRepos(args.repos),
+      force: args.force,
+    });
+  });
+
   ipcMain.handle(IPC.DeleteTask, (_e, args) => {
     assertStringArray(args.agentIds, 'agentIds');
     validatePath(args.projectRoot, 'projectRoot');
