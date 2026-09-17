@@ -88,6 +88,39 @@ the convention is a pull request per repository, children merged first, so the p
 at an unmerged commit. Push the branches and open the pull requests in that case; the merge button
 is for workspaces that do integrate locally.
 
+## Shared libraries that exist twice
+
+Some workspaces check a shared library out both as a sibling repository at the environment root and
+as a submodule inside each application that uses it. The applications build against their submodule
+copy, so that is where a change has to be made for the running application to pick it up — but the
+copies are pinned independently and drift, so it is not where the change should be committed. In the
+Winston dev-env the four applications pin four different commits of `shared`, none of them the
+sibling checkout's `dev` tip.
+
+The sibling checkout is treated as canonical, and the flow is:
+
+1. **On lease**, every copy is put on its canonical repository's base branch, fetched from the
+   canonical checkout on disk rather than over the network. All copies and the canonical checkout
+   then share one base. The copy stays detached: it is a build input for the task, not where commits
+   belong.
+2. **During the task**, the agent edits the copy, and the running application picks the change up.
+3. **Before committing**, **Sync shared** in the task's title bar carries each copy's changes into
+   the canonical checkout — commits made inside the copy as well as uncommitted work — as a patch
+   taken against that shared base, so it applies by construction. The result is left uncommitted:
+   the message is the author's.
+4. **Pushing refuses** while a copy still holds changes the canonical checkout has not taken, since
+   that would send the application branch without the shared change it was written against.
+5. **On release**, `git submodule update --force` puts every copy back on its recorded pin.
+
+A copy is recognised by name: `packages/shared` inside `waiter` mirrors the member repo called
+`shared`. A submodule with no member of that name — a vendored dependency, a skills checkout — is
+left alone.
+
+The consequence of step 1 is worth stating plainly: an application runs against the shared library's
+base branch rather than the commit it pins. That is the point — the change is authored, run and
+committed against one base — but it does mean a library that has moved ahead incompatibly will show
+up as a broken application rather than as a merge conflict later.
+
 ## Ports
 
 Two tasks in a pool run two copies of the same applications, so they cannot share an application's
@@ -110,8 +143,12 @@ misleading `PORT`.
 - **Concurrency is the pool size.** When every environment is leased, creating a task fails and says
   which task holds each one. Environments are not built on demand.
 - **Commit navigation is off.** It is per-repository, and a pool task spans several.
-- **Submodules are not branched.** A submodule with its own commits still needs its own branch and
-  pull request, by hand.
+- **Submodules are not branched.** A submodule the environment keeps no canonical copy of — a
+  vendored dependency — still needs its own branch and pull request by hand. A shared library the
+  environment does keep a copy of is handled above.
+- **The parent's submodule pointer is not bumped.** The shared change lands on the canonical
+  repository's own branch; re-pinning each application after that branch merges is still manual,
+  which is also what keeps a parent from ever pointing at an unmerged commit.
 - **An environment must be given back clean.** The readiness check refuses a dirty repository, which
   is also what stops a task inheriting the previous one's leftovers.
 
@@ -122,6 +159,7 @@ misleading `PORT`.
 | Manifest parsing and discovery | `electron/ipc/pool-members.ts` |
 | Leasing, readiness, release    | `electron/ipc/pool.ts`         |
 | Changed files, diffs, status   | `electron/ipc/pool-git.ts`     |
+| Shared-library copies          | `electron/ipc/pool-shared.ts`  |
 | Task create and close          | `electron/ipc/tasks.ts`        |
 | Port variables                 | `src/lib/pool-ports.ts`        |
 | Project settings form          | `src/lib/pool-config.ts`       |
@@ -129,7 +167,7 @@ misleading `PORT`.
 ## Verification
 
 ```sh
-npx vitest run electron/ipc/pool.test.ts electron/ipc/pool-members.test.ts electron/ipc/pool-git.test.ts
+npx vitest run electron/ipc/pool.test.ts electron/ipc/pool-members.test.ts electron/ipc/pool-git.test.ts electron/ipc/pool-shared.test.ts
 npx vitest run src/lib/pool-ports.test.ts src/lib/pool-config.test.ts
 ```
 

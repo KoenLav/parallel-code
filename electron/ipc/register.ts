@@ -79,6 +79,7 @@ import {
 import { createPoolTask, createTask, deletePoolTask, deleteTask } from './tasks.js';
 import { envStatus, type PoolRepo } from './pool.js';
 import { poolAllDiffs, poolChangedFiles, poolFileDiff, poolStatus } from './pool-git.js';
+import { aggregateMirrors, findSharedMirrors, unaggregatedMirrors } from './pool-shared.js';
 import { listAgents } from './agents.js';
 import {
   saveAppState,
@@ -661,6 +662,14 @@ export function registerAllHandlers(win: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC.PoolStatus, (_e, args) => poolStatus(validatedPoolRepos(args.repos)));
+
+  ipcMain.handle(IPC.PoolSharedPending, async (_e, args) =>
+    unaggregatedMirrors(await findSharedMirrors(validatedPoolRepos(args.repos))),
+  );
+
+  ipcMain.handle(IPC.PoolSharedAggregate, async (_e, args) =>
+    aggregateMirrors(await findSharedMirrors(validatedPoolRepos(args.repos))),
+  );
 
   ipcMain.handle(IPC.DeleteTask, (_e, args) => {
     assertStringArray(args.agentIds, 'agentIds');

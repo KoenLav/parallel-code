@@ -24,6 +24,8 @@ const ALLOWED_CHANNELS = new Set([
   'pool_file_diff',
   'pool_all_diffs',
   'pool_status',
+  'pool_shared_pending',
+  'pool_shared_aggregate',
   'get_changed_files',
   'get_changed_files_from_branch',
   'get_all_file_diffs',

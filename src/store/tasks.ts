@@ -16,6 +16,7 @@ import {
   clearTaskGitStatusTracking,
   isAgentBracketedPasteEnabled,
   isAgentIdle,
+  refreshTaskStatus,
   rescheduleTaskStatusPolling,
 } from './taskStatus';
 import { recordMergedLines, recordTaskMerged } from './completion';
@@ -809,6 +810,18 @@ async function pushPoolTask(task: Task, onOutput: Channel<string>): Promise<void
   const repos = task.repos ?? [];
   if (repos.length === 0) throw new Error('This task holds no pool repositories');
 
+  // A shared library edited inside an application still lives only in that
+  // application's copy until it is carried across. Pushing here would send the
+  // application branch without the shared change it was written against, so it
+  // is refused rather than half-done.
+  const pending = await invoke<string[]>(IPC.PoolSharedPending, { repos });
+  if (pending.length > 0) {
+    throw new Error(
+      `Shared changes have not been carried across yet: ${pending.join(', ')}. ` +
+        'Run "Sync shared" and commit them before pushing.',
+    );
+  }
+
   const changed = await poolReposWithCommits(repos);
   if (changed.length === 0) throw new Error('No pool repository has commits to push');
 
@@ -832,6 +845,30 @@ async function poolReposWithCommits(repos: readonly PoolTaskRepo[]): Promise<Poo
     statuses.perRepo.filter((status) => status.has_committed_changes).map((status) => status.repo),
   );
   return repos.filter((repo) => ahead.has(repo.name));
+}
+
+export interface SharedAggregateOutcome {
+  mirror: string;
+  applied?: boolean;
+  error?: string;
+}
+
+/**
+ * Carry shared-library changes made inside an application back to the
+ * canonical checkout of that library, where the task's branch and its commits
+ * live. Leaves the result uncommitted: the commit message is the author's.
+ */
+export async function aggregatePoolShared(taskId: string): Promise<SharedAggregateOutcome[]> {
+  const task = store.tasks[taskId];
+  if (!task) throw new Error('Task no longer exists');
+  if (task.gitIsolation !== 'pool' || !task.repos) {
+    throw new Error('Only pool tasks have shared libraries to carry across');
+  }
+  const outcomes = await invoke<SharedAggregateOutcome[]>(IPC.PoolSharedAggregate, {
+    repos: task.repos,
+  });
+  refreshTaskStatus(taskId);
+  return outcomes;
 }
 
 export function updateTaskName(taskId: string, name: string): void {

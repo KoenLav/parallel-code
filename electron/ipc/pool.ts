@@ -4,6 +4,7 @@ import path from 'path';
 import { atomicWriteFile } from '../mcp/atomic.js';
 import { runGit } from './git.js';
 import { discoverMembers, type PoolMemberSpec } from './pool-members.js';
+import { alignMirrors, findSharedMirrors } from './pool-shared.js';
 
 /**
  * Leasing for pooled workspaces.
@@ -242,6 +243,16 @@ export async function acquireEnv(args: AcquireArgs): Promise<AcquireResult> {
         `Could not branch every repository in ${envPath}, so nothing was changed: ${String(err)}`,
       );
     }
+    // Every copy of a shared library goes onto its canonical repository's base
+    // branch before the agent starts, so the application builds against the
+    // code the change will be committed against. A copy that will not align is
+    // reported rather than fatal: the task is still workable, it just cannot
+    // carry that library's changes back cleanly.
+    const alignment = await alignMirrors(await findSharedMirrors(created)).catch(() => []);
+    for (const outcome of alignment) {
+      if (outcome.error) console.warn(`Could not align ${outcome.mirror}:`, outcome.error);
+    }
+
     return { envPath, repos: created };
   }
 
@@ -316,8 +327,12 @@ export async function releaseEnv(args: ReleaseArgs): Promise<ReleaseResult> {
       }
 
       // Submodule pins move with the branch; without this the environment
-      // stays on the task's pins and the next lease inherits them.
-      await runGit(repo.path, ['submodule', 'update', '--init', '--recursive']);
+      // stays on the task's pins and the next lease inherits them. `--force` is
+      // required rather than tidy: a copy of a shared library was deliberately
+      // moved off its pin at lease time and may hold edits, and a plain update
+      // refuses to check out over those — which would leave the environment
+      // dirty and unleasable.
+      await runGit(repo.path, ['submodule', 'update', '--init', '--recursive', '--force']);
     } catch (err) {
       failures.push({ repo: repo.name, reason: String(err) });
     }
