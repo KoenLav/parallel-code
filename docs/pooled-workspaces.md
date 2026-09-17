@@ -37,6 +37,17 @@ Clearing the field makes the project ordinary again — there is no separate swi
   the environment root (`repos.tsv`, `name<TAB>url[<TAB>branch]`) because it names repositories that
   belong to the workspace even while they are missing; otherwise it scans one level down for git
   checkouts. Listing repositories here overrides both.
+
+  The environment's own repository is included as `.` whenever the root is a git checkout, so a
+  change can touch the manifest, a shared script or the instructions that live there. A manifest
+  never lists it — it is the repository the manifest lives in. An explicit list names the full set,
+  so there it participates only if you write `.` in it.
+
+  A repository the manifest declares but that nobody cloned is reported, not refused. Manifests
+  drift from the checkouts beside them: the Winston dev-env's `repos.tsv` names three repositories
+  that are not cloned and omits three that are, and blocking on that would make the pool unusable.
+  Where the manifest and the checkouts disagree this much, list the repositories explicitly.
+
 - **Port base per environment** and **port offset per repository** — see [Ports](#ports).
 
 Then start a task with **Git Isolation → Pooled Env**. The panel says how many environments are free
@@ -47,8 +58,9 @@ before you create it.
 1. **Leases** the first environment with no live lease. A lease is held in app state and written to
    `<env>/.parallel-code/lease.json`, so a second app instance — or a person in a terminal — can see
    the environment is taken. A lease whose task no longer exists is reclaimed.
-2. **Checks it is ready.** Every member repository must exist, be a git checkout, be clean and be on
-   a branch. All blockers are reported at once, named per repository, rather than one per attempt.
+2. **Checks it is ready.** Every member repository present must be clean and on a branch. All
+   blockers are reported at once, named per repository, rather than one per attempt. A declared but
+   uncloned repository is reported without blocking.
 3. **Branches** every member repository to the same name. Creating a branch is free when the
    repository is already at base, an unused one is deleted on release, and doing it up front means
    the agent never has to stop and ask before editing a second repository. Creation is
@@ -62,7 +74,8 @@ before you create it.
 ## The change, across repositories
 
 Changed files and the diff are the union of the member repositories, with each path re-rooted under
-its repository name. That prefix is what makes the existing panels work unchanged: `waiter/src/a.ts`
+its repository name — except the environment's own repository, whose files are at the root already
+and so are left alone. That prefix is what makes the existing panels work unchanged: `waiter/src/a.ts`
 is a real path relative to the environment root, which is the path those panels already hold, so
 opening a file in an editor and routing a per-file diff back to its repository both fall out of it.
 

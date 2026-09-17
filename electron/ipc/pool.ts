@@ -122,6 +122,12 @@ async function currentBranch(repoPath: string): Promise<string | null> {
  * point of the report is to tell someone everything they have to fix before
  * this environment is usable — three round trips to find three dirty repos is
  * the failure mode this avoids.
+ *
+ * A repository the manifest declares but that is not cloned is reported in
+ * `missing` and is deliberately *not* a blocker. Manifests drift from the
+ * checkouts beside them — they gain repositories nobody clones and lose ones
+ * everybody has — and refusing an otherwise healthy environment over a line in
+ * a file would make the pool unusable for the workspaces this mode exists for.
  */
 export async function envStatus(
   envPath: string,
@@ -146,9 +152,6 @@ export async function envStatus(
 
   if (lease) {
     blockers.push({ reason: `Leased by task "${lease.taskName || lease.taskId}"` });
-  }
-  for (const name of missing) {
-    blockers.push({ repo: name, reason: 'Not cloned yet — run the environment’s setup script' });
   }
   if (members.length === 0) {
     blockers.push({ reason: 'No git repositories found in this environment' });

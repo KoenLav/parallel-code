@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 
 import {
+  ROOT_MEMBER,
   discoverMembers,
   isSafeMemberName,
   parseRepoManifest,
@@ -139,6 +140,31 @@ describe('discoverMembers', () => {
     makeRepo('waiter');
     makeRepo('api');
     expect(discoverMembers(envPath, ['api'])).toEqual({ members: [{ name: 'api' }], missing: [] });
+  });
+
+  it('includes the environment’s own repository when the root is a checkout', () => {
+    fs.mkdirSync(path.join(envPath, '.git'));
+    fs.writeFileSync(path.join(envPath, 'repos.tsv'), 'waiter\tgit@host:waiter.git\n');
+    makeRepo('waiter');
+    expect(discoverMembers(envPath)).toEqual({
+      members: [{ name: ROOT_MEMBER }, { name: 'waiter', branch: undefined }],
+      missing: [],
+    });
+  });
+
+  it('leaves the root out when the environment root is not a repository', () => {
+    makeRepo('waiter');
+    expect(discoverMembers(envPath).members).toEqual([{ name: 'waiter' }]);
+  });
+
+  it('leaves the root out of an explicit list that does not name it', () => {
+    fs.mkdirSync(path.join(envPath, '.git'));
+    makeRepo('waiter');
+    expect(discoverMembers(envPath, ['waiter']).members).toEqual([{ name: 'waiter' }]);
+    expect(discoverMembers(envPath, [ROOT_MEMBER, 'waiter']).members).toEqual([
+      { name: ROOT_MEMBER },
+      { name: 'waiter' },
+    ]);
   });
 
   it('drops an unsafe configured name instead of building a path from it', () => {

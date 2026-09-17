@@ -79,15 +79,15 @@ describe('envStatus', () => {
     expect(status.blockers).toEqual([{ repo: 'waiter', reason: 'Has uncommitted changes' }]);
   });
 
-  it('separates "declared but not cloned" from "no repositories at all"', async () => {
+  it('reports a declared-but-uncloned repo without refusing the environment', async () => {
+    // Manifests drift from the checkouts beside them: the Winston dev-env's
+    // repos.tsv names three repositories nobody clones. Blocking on those
+    // would make the pool unusable.
     const envPath = makeEnv('MRW3', ['waiter']);
     fs.appendFileSync(path.join(envPath, 'repos.tsv'), '\napi\tgit@example.com:acme/api.git\n');
     const status = await envStatus(envPath, undefined, new Set());
     expect(status.missing).toEqual(['api']);
-    expect(status.blockers).toContainEqual({
-      repo: 'api',
-      reason: 'Not cloned yet — run the environment’s setup script',
-    });
+    expect(status.blockers).toEqual([]);
   });
 
   it('treats a lease whose task is gone as free', async () => {

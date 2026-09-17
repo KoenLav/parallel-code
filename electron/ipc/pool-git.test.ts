@@ -33,6 +33,17 @@ describe('splitRepoPath', () => {
     expect(splitRepoPath(repos, 'repos.tsv')).toBeNull();
     expect(splitRepoPath(repos, 'waiterish/file.ts')).toBeNull();
   });
+
+  it('falls back to the environment’s own repository for an unprefixed path', () => {
+    const root = { name: '.', path: '/envs/MRW1', branchName: 'task/win-1', baseBranch: 'dev' };
+    const withRoot = [...repos, root];
+    expect(splitRepoPath(withRoot, 'repos.tsv')).toEqual({ repo: root, filePath: 'repos.tsv' });
+    // A child repo's file still routes to the child, not to the fallback.
+    expect(splitRepoPath(withRoot, 'waiter/src/a.ts')).toEqual({
+      repo: repos[0],
+      filePath: 'src/a.ts',
+    });
+  });
 });
 
 describe('prefixChangedFiles', () => {
@@ -51,6 +62,17 @@ describe('prefixChangedFiles', () => {
       path: 'waiter/src/new.ts',
       previous_path: 'waiter/src/old.ts',
     });
+  });
+});
+
+describe('the environment’s own repository', () => {
+  it('keeps its paths as they are, in file lists and in diffs', () => {
+    const files: ChangedFile[] = [
+      { path: 'repos.tsv', lines_added: 1, lines_removed: 0, status: 'M', committed: false },
+    ];
+    expect(prefixChangedFiles('.', files)).toEqual(files);
+    const diff = '--- a/repos.tsv\n+++ b/repos.tsv';
+    expect(prefixDiffPaths('.', diff)).toBe(diff);
   });
 });
 

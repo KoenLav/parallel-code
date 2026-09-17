@@ -16,6 +16,15 @@ import path from 'path';
 /** Manifest filenames probed at an environment root, in order. */
 export const MANIFEST_FILENAMES = ['repos.tsv'] as const;
 
+/**
+ * The environment's own repository, when the root is itself a checkout.
+ *
+ * It is named `.` because that is what its path is relative to the
+ * environment, and because everything that re-roots a path under a member
+ * name has to leave this one alone: its files already sit at the root.
+ */
+export const ROOT_MEMBER = '.';
+
 export interface PoolMemberSpec {
   /** Directory name under the environment root. */
   name: string;
@@ -111,17 +120,34 @@ export function scanForMembers(envPath: string): PoolMemberSpec[] {
  * Entries are filtered to what is actually checked out; `missing` carries the
  * rest, so "you have not run the setup script yet" stays a different answer
  * from "this environment has no repositories".
+ *
+ * The environment root itself is included when it is a git checkout, since a
+ * workspace that is a repository of repositories still has files of its own.
  */
 export function discoverMembers(
   envPath: string,
   configured?: string[],
 ): { members: PoolMemberSpec[]; missing: string[] } {
   const declared = configured?.length
-    ? configured.filter(isSafeMemberName).map((name) => ({ name }))
+    ? configured
+        .filter((name) => name === ROOT_MEMBER || isSafeMemberName(name))
+        .map((name) => ({
+          name,
+        }))
     : (readManifest(envPath) ?? scanForMembers(envPath));
   const members: PoolMemberSpec[] = [];
   const missing: string[] = [];
+
+  // The workspace's own repository participates like any other: a change can
+  // touch the manifest, a shared script or the instructions at the root. A
+  // manifest never lists it — it is the repository the manifest lives in — so
+  // it is added here rather than declared. An explicit member list names the
+  // full set, so there it is included only when it says so.
+  const includesRoot = configured?.length ? configured.includes(ROOT_MEMBER) : true;
+  if (includesRoot && isGitCheckout(envPath)) members.push({ name: ROOT_MEMBER });
+
   for (const spec of declared) {
+    if (spec.name === ROOT_MEMBER) continue; // already handled above
     if (isGitCheckout(path.join(envPath, spec.name))) members.push(spec);
     else missing.push(spec.name);
   }

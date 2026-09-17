@@ -2,6 +2,7 @@ import path from 'path';
 
 import { getAllFileDiffs, getChangedFiles, getFileDiff, getWorktreeStatus } from './git.js';
 import type { PoolRepo } from './pool.js';
+import { ROOT_MEMBER } from './pool-members.js';
 import type { ChangedFile, FileDiffResult, WorktreeStatus } from './shared-types.js';
 
 /**
@@ -20,23 +21,32 @@ import type { ChangedFile, FileDiffResult, WorktreeStatus } from './shared-types
  * that owns it.
  */
 
-/** Split an environment-relative path into its member repo and the rest. */
+/**
+ * Split an environment-relative path into its member repo and the rest.
+ *
+ * The environment's own repository carries no prefix — its files are already
+ * at the root — so it is the fallback rather than a match, and a path that
+ * belongs to a child repository is never mistaken for one of its files.
+ */
 export function splitRepoPath(
   repos: PoolRepo[],
   envRelativePath: string,
 ): { repo: PoolRepo; filePath: string } | null {
   const normalized = envRelativePath.split(path.sep).join('/');
   for (const repo of repos) {
+    if (repo.name === ROOT_MEMBER) continue;
     const prefix = `${repo.name}/`;
     if (normalized.startsWith(prefix)) {
       return { repo, filePath: normalized.slice(prefix.length) };
     }
   }
-  return null;
+  const root = repos.find((repo) => repo.name === ROOT_MEMBER);
+  return root ? { repo: root, filePath: normalized } : null;
 }
 
 /** Re-root one repository's changed files at the environment. */
 export function prefixChangedFiles(repoName: string, files: ChangedFile[]): ChangedFile[] {
+  if (repoName === ROOT_MEMBER) return files; // already environment-relative
   return files.map((file) => ({
     ...file,
     path: `${repoName}/${file.path}`,
@@ -73,6 +83,7 @@ export async function poolChangedFiles(repos: PoolRepo[]): Promise<ChangedFile[]
  * body — a diff of a diff, or of a patch fixture — is left alone.
  */
 export function prefixDiffPaths(repoName: string, diff: string): string {
+  if (repoName === ROOT_MEMBER) return diff; // already environment-relative
   return diff
     .split('\n')
     .map((line) => {
