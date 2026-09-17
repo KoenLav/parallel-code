@@ -78,6 +78,7 @@ import {
 } from './git.js';
 import { createPoolTask, createTask, deletePoolTask, deleteTask } from './tasks.js';
 import { envStatus, type PoolRepo } from './pool.js';
+import { poolAllDiffs, poolChangedFiles, poolFileDiff, poolStatus } from './pool-git.js';
 import { listAgents } from './agents.js';
 import {
   saveAppState,
@@ -647,6 +648,19 @@ export function registerAllHandlers(win: BrowserWindow): void {
       force: args.force,
     });
   });
+
+  ipcMain.handle(IPC.PoolChangedFiles, (_e, args) =>
+    poolChangedFiles(validatedPoolRepos(args.repos)),
+  );
+
+  ipcMain.handle(IPC.PoolAllDiffs, (_e, args) => poolAllDiffs(validatedPoolRepos(args.repos)));
+
+  ipcMain.handle(IPC.PoolFileDiff, (_e, args) => {
+    assertString(args.filePath, 'filePath');
+    return poolFileDiff(validatedPoolRepos(args.repos), args.filePath);
+  });
+
+  ipcMain.handle(IPC.PoolStatus, (_e, args) => poolStatus(validatedPoolRepos(args.repos)));
 
   ipcMain.handle(IPC.DeleteTask, (_e, args) => {
     assertStringArray(args.agentIds, 'agentIds');

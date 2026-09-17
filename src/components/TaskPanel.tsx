@@ -763,6 +763,7 @@ export function TaskPanel(props: TaskPanelProps) {
             setSelectedCommit(selection);
           }}
           gitIsolation={props.task.gitIsolation}
+          poolRepos={props.task.repos}
           findingProvider={devQualityFindingProvider ?? eslintQualityFindingProvider}
         />
       </Show>
