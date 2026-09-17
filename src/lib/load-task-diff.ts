@@ -6,6 +6,7 @@ import {
   isUncommittedSelection,
   type CommitSelection,
 } from '../components/CommitNavBar';
+import type { GitIsolationMode } from '../store/types';
 
 export interface TaskDiffInput {
   worktreePath: string;
@@ -16,9 +17,10 @@ export interface TaskDiffInput {
 }
 
 /** Direct tasks work on their base branch, so naming that branch as the diff base
- * would compare HEAD to itself and hide committed work from the All view. */
+ * would compare HEAD to itself and hide committed work from the All view.
+ * Pool tasks branch off their base like worktree tasks do, so they keep it. */
 export function getTaskDiffBaseBranch(
-  gitIsolation: 'worktree' | 'direct' | 'none',
+  gitIsolation: GitIsolationMode,
   baseBranch?: string,
 ): string | undefined {
   return gitIsolation === 'direct' ? undefined : baseBranch;
