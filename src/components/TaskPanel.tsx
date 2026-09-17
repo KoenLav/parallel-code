@@ -220,10 +220,10 @@ export function TaskPanel(props: TaskPanelProps) {
         setShowCloseConfirm(true);
         break;
       case 'merge':
-        if (props.task.gitIsolation === 'worktree' && !isLandedTask()) setShowMergeConfirm(true);
+        if (hasGitActions() && !isLandedTask()) setShowMergeConfirm(true);
         break;
       case 'push':
-        if (props.task.gitIsolation === 'worktree' && !isLandedTask()) setShowPushConfirm(true);
+        if (hasGitActions() && !isLandedTask()) setShowPushConfirm(true);
         break;
     }
   });
@@ -293,6 +293,10 @@ export function TaskPanel(props: TaskPanelProps) {
   };
 
   const isGitUnavailable = () => props.task.gitIsolation === 'none' || isLandedTask();
+  /** Merge and push work on a pool task too: it has branches, they just live
+   *  in several member repositories rather than in one worktree. */
+  const hasGitActions = () =>
+    props.task.gitIsolation === 'worktree' || props.task.gitIsolation === 'pool';
   const [changedFileCount, setChangedFileCount] = createSignal(0);
   // An empty notes box next to an empty file list still claimed half the
   // column. Until either has content the strip stays thin and the AI terminal

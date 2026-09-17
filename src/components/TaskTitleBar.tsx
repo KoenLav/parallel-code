@@ -241,7 +241,12 @@ export function TaskTitleBar(props: TaskTitleBarProps) {
         </Show>
       </div>
       <div class="task-title-actions">
-        <Show when={props.task.gitIsolation === 'worktree' && !isLandedTask()}>
+        <Show
+          when={
+            (props.task.gitIsolation === 'worktree' || props.task.gitIsolation === 'pool') &&
+            !isLandedTask()
+          }
+        >
           <div class="task-action-group" role="group" aria-label="Git actions">
             <IconButton
               icon={

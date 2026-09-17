@@ -2108,6 +2108,9 @@ export function pushTask(
   projectRoot: string,
   branchName: string,
   channelId: string,
+  /** Written to the stream before git runs, so a caller pushing several
+   *  repositories in turn can say which one each block of output is from. */
+  label?: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn('git', ['push', '--progress', '-u', 'origin', '--', branchName], {
@@ -2120,6 +2123,8 @@ export function pushTask(
         win.webContents.send(`channel:${channelId}`, msg);
       }
     };
+
+    if (label) send(`\n=== ${label} ===\n`);
 
     proc.stdout?.on('data', (chunk: Buffer) => {
       send(chunk.toString('utf8'));

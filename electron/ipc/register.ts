@@ -792,7 +792,8 @@ export function registerAllHandlers(win: BrowserWindow): void {
     const projectRoot = projectRootArg(args);
     const branchName = branchNameArg(args);
     assertString(args.onOutput?.__CHANNEL_ID__, 'channelId');
-    return pushTask(win, projectRoot, branchName, args.onOutput.__CHANNEL_ID__);
+    assertOptionalString(args.label, 'label');
+    return pushTask(win, projectRoot, branchName, args.onOutput.__CHANNEL_ID__, args.label);
   });
   ipcMain.handle(IPC.RebaseTask, (_e, args) => {
     const worktreePath = worktreePathArg(args);

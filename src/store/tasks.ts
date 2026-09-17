@@ -25,6 +25,7 @@ import type {
   AgentDef,
   CreatePoolTaskResult,
   CreateTaskResult,
+  PoolTaskRepo,
   ReleasePoolEnvResult,
   ImportableWorktree,
   MergeResult,
@@ -689,6 +690,7 @@ export async function mergeTask(
   const task = store.tasks[taskId];
   if (!task) throw new Error('Task no longer exists');
   if (task.closingStatus === 'removing') throw new Error('Task is being closed');
+  if (task.gitIsolation === 'pool') return mergePoolTask(task, options);
   if (task.gitIsolation !== 'worktree') throw new Error('Only worktree tasks can be merged');
 
   const projectRoot = getProjectPath(task.projectId);
@@ -737,6 +739,7 @@ export async function mergeTask(
 export async function pushTask(taskId: string, onOutput: Channel<string>): Promise<void> {
   const task = store.tasks[taskId];
   if (!task) throw new Error('Task no longer exists');
+  if (task.gitIsolation === 'pool') return pushPoolTask(task, onOutput);
   if (task.gitIsolation !== 'worktree') throw new Error('Only worktree tasks can be pushed');
 
   const projectRoot = getProjectPath(task.projectId);
@@ -751,6 +754,84 @@ export async function pushTask(taskId: string, onOutput: Channel<string>): Promi
   void invoke(IPC.RefreshPrChecksWatcher, { taskId }).catch((err: unknown) =>
     logWarn('tasks', 'Failed to refresh PR checks after push', { err: String(err) }),
   );
+}
+
+/**
+ * Merge every member repository that has commits into its own base branch.
+ *
+ * Sequential and stopping at the first failure: a conflict in one repository
+ * means the change is not integrated, and carrying on would leave half of it
+ * on base with no record of which half. Cleanup is never passed through —
+ * closing the task is what returns the environment to the pool, and a merge
+ * that also released the lease would be two decisions behind one button.
+ *
+ * Local merging is not how these workspaces usually integrate — a repository
+ * with submodules wants a pull request per repository, children first, so the
+ * parent never points at an unmerged commit. This exists for the workspaces
+ * that do merge locally; see docs/pooled-workspaces.md.
+ */
+async function mergePoolTask(
+  task: Task,
+  options?: { squash?: boolean; message?: string },
+): Promise<void> {
+  const repos = task.repos ?? [];
+  const changed = await poolReposWithCommits(repos);
+  if (changed.length === 0) throw new Error('No pool repository has commits to merge');
+
+  for (const repo of changed) {
+    const result = await invoke<MergeResult>(IPC.MergeTask, {
+      projectRoot: repo.path,
+      branchName: repo.branchName,
+      worktreePath: repo.path,
+      baseBranch: repo.baseBranch,
+      squash: options?.squash ?? false,
+      message: options?.message,
+      cleanup: false,
+    });
+    recordMergedLines(result.lines_added, result.lines_removed);
+  }
+  recordTaskMerged();
+}
+
+/**
+ * Push every member repository that has commits, one after another.
+ *
+ * Sequential and on one output channel on purpose: the platform these
+ * workspaces come from wants a branch — and then a pull request — per
+ * repository, and a person reading the push output needs to see which
+ * repository each line belongs to. Interleaving several `git push --progress`
+ * streams would make that unreadable.
+ *
+ * A repository with no commits is skipped rather than pushed empty, so the
+ * branches that appear on the remote are the ones the change actually touched.
+ */
+async function pushPoolTask(task: Task, onOutput: Channel<string>): Promise<void> {
+  const repos = task.repos ?? [];
+  if (repos.length === 0) throw new Error('This task holds no pool repositories');
+
+  const changed = await poolReposWithCommits(repos);
+  if (changed.length === 0) throw new Error('No pool repository has commits to push');
+
+  for (const repo of changed) {
+    await invoke(IPC.PushTask, {
+      projectRoot: repo.path,
+      branchName: repo.branchName,
+      label: repo.name,
+      onOutput,
+    });
+  }
+}
+
+/** Member repos whose task branch is ahead of its base. */
+async function poolReposWithCommits(repos: readonly PoolTaskRepo[]): Promise<PoolTaskRepo[]> {
+  const statuses = await invoke<{ perRepo: { repo: string; has_committed_changes: boolean }[] }>(
+    IPC.PoolStatus,
+    { repos },
+  );
+  const ahead = new Set(
+    statuses.perRepo.filter((status) => status.has_committed_changes).map((status) => status.repo),
+  );
+  return repos.filter((repo) => ahead.has(repo.name));
 }
 
 export function updateTaskName(taskId: string, name: string): void {
